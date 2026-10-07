@@ -40,3 +40,12 @@ class IndexingHealthTests(unittest.TestCase):
                 self.assertEqual(errors,['unknown'])
                 self.assertEqual(indexing_health.summaries(c)[0]['walk_error_categories'],{'unknown':1})
             finally:c.close()
+
+    def test_root_stat_permission_is_not_mislabeled_as_missing(self):
+        failures=[]
+        class Recorder(list):
+            def record(self,exc=None,target=None):self.append(indexing_health.category(exc))
+        failures=Recorder()
+        with patch.object(Path,'stat',side_effect=PermissionError(errno.EACCES,'denied')):
+            self.assertEqual(list(search.iter_files(['/synthetic-root'],failures)),[])
+        self.assertEqual(failures,['permission'])

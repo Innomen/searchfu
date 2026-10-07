@@ -172,14 +172,17 @@ def iter_files(roots, walk_errors=None, excluded=(), devices=None, all_files=Fal
     for root in (Path(r).absolute() for r in roots):
         # Explicit known files allow durable refresh without a directory crawl.
         # File roots never enter the directory-pruning branch in _build.
-        if root.is_file() and not root.is_symlink() and not denied(root):
+        if denied(root):continue
+        try:root_stat=root.stat()
+        except OSError as exc:
+            record_walk(walk_errors,exc,root);continue
+        if stat.S_ISREG(root_stat.st_mode) and not root.is_symlink():
             ext=root.suffix.lower()
             if all_files or ext in TEXT_EXTS or ext in IMAGE_EXTS or ext in DOCUMENT_EXTS:
                 yield root.parent,root,"image" if ext in IMAGE_EXTS else "text" if ext in TEXT_EXTS or ext in DOCUMENT_EXTS else "file"
             continue
-        if denied(root):continue
-        if not root.is_dir():
-            record_walk(walk_errors,FileNotFoundError(2,'',str(root)))
+        if not stat.S_ISDIR(root_stat.st_mode):
+            record_walk(walk_errors,NotADirectoryError(20,'',str(root)))
             continue
         for base, dirs, names in os.walk(root, followlinks=False, onerror=lambda e: record_walk(walk_errors,e)):
             dirs[:] = [d for d in dirs if d not in SKIP_NAMES and not denied(Path(base)/d) and not (Path(base)/d).is_symlink()]
