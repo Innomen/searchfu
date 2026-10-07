@@ -126,7 +126,9 @@ class Models:
         return self._clip, self._proc
     def text_vecs(self, items):
         model = self.text()
-        bs = 128 if getattr(self, "cpu_fallback", False) else 8
+        bs = int(os.environ.get("SEARCHFU_ENCODE_BATCH", 128 if getattr(self, "cpu_fallback", False) else 64 if os.environ.get("SEARCHFU_CUDA") == "1" else 8))
+        if not 1 <= bs <= 1024:
+            raise ValueError("encode_batch_out_of_range")
         if getattr(self, "cpu_fallback", False):
             return model.encode(items, batch_size=bs, normalize_embeddings=True, show_progress_bar=False)
         try:

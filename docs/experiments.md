@@ -54,3 +54,10 @@ recovered all reference files in these trials. Independent optional stages do
 not replace the full indexed pass or certify that every useful real-world source
 exists in the index. Cancellation preserves delivered evidence without claiming
 complete coverage.
+
+
+Synthetic CUDA batching check: 512 fabricated passages, same normalized MiniLM
+vectors. Batch 8 took 0.8130 s; batch 64 took 0.4441 s (1.83 times faster).
+Maximum absolute vector difference was 2.98e-8. Explicit bulk CUDA indexing now
+defaults to 64; CPU queries retain 8. `SEARCHFU_ENCODE_BATCH` overrides either
+default with an integer from 1 through 1024. This measures encoding only.
