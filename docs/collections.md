@@ -69,3 +69,6 @@ for traversal bookkeeping so catalog size does not require a Python path set.
 
 Content collection builds also update the compact vector cache from stored
 SQLite vectors. Filename-only builds skip that step and load no model.
+
+`searchfu status --agent --scope workspace` reports catalog and content-file
+counts for a selected view without exposing paths or passages.

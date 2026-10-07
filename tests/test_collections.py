@@ -72,3 +72,17 @@ class CollectionTests(unittest.TestCase):
     def test_reader_change_cannot_publish_stale_hash(self):
         p=self.ems/'target.txt';st=p.stat();p.write_text(p.read_text()+'changed')
         with self.assertRaises(ValueError):search._file_items(self.ems,p,'text',st,25000)
+
+    def test_scoped_health_is_aggregate_only(self):
+        p=subprocess.run(['bash',str(SOURCE/'searchfu.sh'),'status','--agent','--scope','ems'],env={**os.environ,'SEARCHFU_DB':str(self.db)},capture_output=True,text=True,check=True)
+        data=json.loads(p.stdout);self.assertEqual(data['files'],1);self.assertEqual(data['content_files'],1)
+        self.assertNotIn(str(self.ems),p.stdout);self.assertNotIn(str(self.archive),p.stdout)
+    def test_legacy_vision_search_obeys_scope(self):
+        import numpy as np
+        vector=np.eye(1,384,dtype=np.float32)[0];c=search.connect(self.db)
+        with c:
+            for root in (self.ems,self.archive):
+                c.execute('INSERT INTO files(path,root,kind,mime,size,mtime,image_embedding) VALUES(?,?,?,?,?,?,?)',(str(root/'image.jpg'),str(root),'image','image/jpeg',1,1,search.pack(vector)))
+        c.close();model=FakeModels(vector);model.clip_text=lambda query:vector
+        results=search.search(self.db,'target',kind='image',images=True,models=model,scopes=['ems'])
+        self.assertEqual([r['path'] for r in results],[str(self.ems/'image.jpg')])

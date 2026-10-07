@@ -481,6 +481,9 @@ def search(db, query, top_k=12, kind="all", after=None, before=None, path=None,
             iq = models.clip_text(query)
             from retrieval import filters
             where, params = filters(kind="image", after=after, before=before, path=path)
+            from collections_config import scope_sql
+            sw,sp,_=scope_sql(retrieval_options.get('scopes',()),retrieval_options.get('collections_file'))
+            where+=sw;params+=sp
             sql = "SELECT path,kind,mtime,mime,image_embedding FROM files f WHERE " + " AND ".join(where)
             for p,k,mt,mime,emb in c.execute(sql,params):
                 if emb and not corpus_filter.is_junk(p):
@@ -498,7 +501,7 @@ def main():
     from jobs import add_commands, add_stage_options
     add_stage_options(q)
     add_commands(sub)
-    s=sub.add_parser("status"); s.add_argument("--agent",action="store_true",help="payload-free index health; no paths or result text")
+    s=sub.add_parser("status"); s.add_argument("--scope",action="append",default=[]); s.add_argument("--agent",action="store_true",help="payload-free index health; no paths or result text")
     sub.add_parser("stats")
     a=ap.parse_args(); db=a.db or profile_db(a.profile)
     if a.cmd=="build":
@@ -518,6 +521,13 @@ def main():
                 "chunks":c.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
                 "bytes":db.stat().st_size if db.exists() else 0, "update":state}
         status["update_incomplete"]=state.get("last_build_started",0)>state.get("last_build_finished",0)
+        if a.scope:
+            from collections_config import scope_sql
+            where,params,_=scope_sql(a.scope)
+            condition=' AND '.join(where)
+            status['files']=c.execute('SELECT count(*) FROM files f WHERE '+condition,params).fetchone()[0]
+            status['chunks']=c.execute('SELECT count(*) FROM chunks c JOIN files f ON f.id=c.file_id WHERE '+condition,params).fetchone()[0]
+            status['content_files']=c.execute('SELECT count(DISTINCT f.id) FROM files f JOIN chunks c ON c.file_id=f.id WHERE '+condition,params).fetchone()[0]
         if not a.agent:
             status["db"]=str(db)
         print(json.dumps(status)); c.close()
