@@ -2,11 +2,12 @@
 
 ## Work division
 
-Brandon clarified on 2026-10-06: local AI testing and assimilation into the local
-implementation already happen separately. Work on this GitHub candidate should
-focus on competitive analysis, design improvements, implementation and synthetic
-verification. Do not make another local integration/evaluation project a gate
-for this work. A future integration task requires its own concrete scope.
+The GitHub candidate uses synthetic tests for public evaluation. The owner later
+authorized installation from this repository, EMS integration, named NVMe/archive
+scopes and an aggregate-only comparison with the existing local RAG backend.
+Private corpora, collection configuration and evaluation content stay outside
+source. Ordinary source review is performed directly; local workers serve as
+privacy buffers when private material requires them.
 
 ## Position
 
