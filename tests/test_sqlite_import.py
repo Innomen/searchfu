@@ -41,3 +41,18 @@ class LegacyIndexTests(unittest.TestCase):
             c=search.connect(db,readonly=True)
             try:self.assertEqual(c.execute('SELECT embedding FROM chunks').fetchone()[0],blob)
             finally:c.close()
+
+    def test_explicit_file_refresh_never_walks_or_prunes_siblings(self):
+        import contextlib,io
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture=root/'fixture.txt';fixture.write_text('Synthetic known-file evidence. '*3)
+            db=root/'index.db';c=search.connect(db)
+            c.execute('INSERT INTO files(path,root,kind) VALUES(?,?,?)',(str(root/'sibling.txt'),str(root),'text'));c.commit();c.close()
+            vectors=[[1.0]+[0.0]*383]
+            with patch('os.walk',side_effect=AssertionError('crawl')),patch.object(search.Models,'text_vecs',side_effect=lambda texts:vectors*len(texts)),patch.dict(os.environ,{'SEARCHFU_CUDA':'0'}),contextlib.redirect_stdout(io.StringIO()):
+                search.build(db,[str(fixture)],images=False)
+            c=search.connect(db,readonly=True)
+            try:
+                self.assertEqual(c.execute('SELECT COUNT(*) FROM files').fetchone()[0],2)
+                self.assertEqual(c.execute('SELECT COUNT(*) FROM chunks').fetchone()[0],1)
+            finally:c.close()

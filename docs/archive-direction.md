@@ -38,6 +38,6 @@ Current SQLite files/chunks, FTS, retained embeddings, appendable matrix cache, 
 
 ## Small decisions now; work that can wait
 
-Now: preserve backward compatibility, separate public code from local data, retain recoverable source locators, document feature-version boundaries, make coverage explicit, and measure scoped text queries against the adopted index. Extend metadata additively when a concrete producer/consumer needs it; avoid speculative empty schemas.
+Now: explicit known-file indexing can refresh changed documents without a directory crawl and does not prune sibling records. Preserve backward compatibility, separate public code from local data, retain recoverable source locators, document feature-version boundaries, make coverage explicit, and measure scoped text queries against the adopted index. Extend metadata additively when a concrete producer/consumer needs it; avoid speculative empty schemas.
 
 Later: choose regional embeddings and visual indexes, expose example/crop queries, implement feedback and neighborhood browsing, select video sampling/refinement policies, integrate archive-member extraction, add direct audio similarity and optional image generation. No bulk visual/video/audio indexing or model replacement is implied by this document.

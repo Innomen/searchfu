@@ -167,6 +167,13 @@ def iter_files(roots, walk_errors=None, excluded=(), devices=None, all_files=Fal
     excluded=[str(Path(p).absolute()).rstrip("/") for p in excluded]
     def denied(p): return any(str(p)==x or str(p).startswith(x+"/") for x in excluded)
     for root in (Path(r).absolute() for r in roots):
+        # Explicit known files allow durable refresh without a directory crawl.
+        # File roots never enter the directory-pruning branch in _build.
+        if root.is_file() and not root.is_symlink() and not denied(root):
+            ext=root.suffix.lower()
+            if all_files or ext in TEXT_EXTS or ext in IMAGE_EXTS or ext in DOCUMENT_EXTS:
+                yield root.parent,root,"image" if ext in IMAGE_EXTS else "text" if ext in TEXT_EXTS or ext in DOCUMENT_EXTS else "file"
+            continue
         if not root.is_dir() or denied(root):
             if walk_errors is not None: walk_errors.append(True)
             continue
