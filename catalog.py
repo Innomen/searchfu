@@ -45,6 +45,11 @@ def main():
         excluded.extend([str(a.db.parent.absolute()),str(config.config_path().parent.absolute()),
                          str(Path.home()/'.cache'),str(Path.home()/'.local/share/searchfu')])
         search.build(a.db,roots,a.allow_model_download,False,a.max_files,excluded=excluded,devices=devices,names_only=a.names_only)
+        if not a.names_only:
+            import subprocess,sys
+            env={**os.environ,'SEARCHFU_ANN_DB':str(a.db),'SEARCHFU_DIR':str(a.db.parent),
+                 'SEARCHFU_ANN_DIR':os.environ.get('SEARCHFU_ANN_DIR',str(a.db.parent/'ann'))}
+            subprocess.run([sys.executable,str(Path(__file__).with_name('ann.py')),'build'],env=env,check=True)
 
 if __name__=='__main__':
     os.umask(0o077)

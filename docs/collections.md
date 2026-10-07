@@ -66,3 +66,6 @@ RAG import may stat only the filenames already present in stored metadata to
 record filesystem identity. It never enumerates source directories or re-embeds.
 Indexing skips special files such as FIFOs and uses a temporary SQLite table
 for traversal bookkeeping so catalog size does not require a Python path set.
+
+Content collection builds also update the compact vector cache from stored
+SQLite vectors. Filename-only builds skip that step and load no model.
