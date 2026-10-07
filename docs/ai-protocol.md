@@ -1,8 +1,12 @@
 # Agent search protocol
 
 The agent starts retrieval, consumes early evidence while deeper work proceeds,
-and cancels if it has enough. Searchfu searches indexed material exclusively.
-It never walks, stats or reads source files during any search stage.
+and cancels if it has enough. Default searches read indexed material exclusively.
+The opt-in `--refresh` beta checks up to twelve known plain-text files (64 KiB
+each), including a rotating catalog sample, and banks changed content before
+retrieving from a fresh snapshot. No source directories are traversed.
+Refresh events expose bounded counters/status; failures preserve old evidence.
+Cancellation and time budgets are cooperative during GPU admission/encoding.
 
 ## Query preparation
 
@@ -69,7 +73,9 @@ relevant concept. Agreement between stages is evidence, not a completeness test.
 
 ## Operating constraints
 
-Searches are read-only with respect to index content. Background state contains
+Default searches are read-only with respect to index content. The explicit
+`--refresh` option permits bounded transactional read repair through a managed
+priority GPU lease; it may add a second retrieval pass. Background state contains
 queries and evidence, belongs outside the source project, and is owner-only.
 Do not put private results into shared logs. Source access is a separate explicit
 operation when the user wants to open a particular result. Only `build`/`update`

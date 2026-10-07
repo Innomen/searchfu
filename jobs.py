@@ -15,6 +15,7 @@ TERMINAL = {"done", "cancelled", "failed"}
 
 
 def add_stage_options(p):
+    p.add_argument("--refresh",action="store_true",help="beta: bounded repair of known plain-text files; may use managed GPU")
     p.add_argument("--scope",action="append",default=[],dest="scopes",help="named indexed collection; repeat to search the union")
     p.add_argument("--names",action="store_true",dest="names_only",help="literal stored filename/path search; no models")
     p.add_argument("--collections-file",help=argparse.SUPPRESS)
@@ -92,10 +93,10 @@ def _alive(state):
 
 
 def _options(args):
-    names=("top_k","kind","after","before","path","fts_only","require_all",
+    names=("refresh","top_k","kind","after","before","path","fts_only","require_all",
            "expansions","deep","max_seconds","batch_rows","emit_seconds",
            "scopes","collections_file","names_only","lexical_queries","semantic_queries","early","candidate_ef","rerank_model","rerank_limit","rerank_mix","rerank_early","deltas")
-    defaults={'scopes':[],'collections_file':None,'names_only':False,'lexical_queries':None,'semantic_queries':None,'early':False,'candidate_ef':500,'rerank_model':None,'rerank_limit':36,'rerank_mix':1.0,'rerank_early':False,'deltas':False}
+    defaults={'refresh':False,'scopes':[],'collections_file':None,'names_only':False,'lexical_queries':None,'semantic_queries':None,'early':False,'candidate_ef':500,'rerank_model':None,'rerank_limit':36,'rerank_mix':1.0,'rerank_early':False,'deltas':False}
     return {name:getattr(args,name,defaults.get(name)) for name in names}
 
 

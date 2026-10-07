@@ -15,7 +15,8 @@ A local worker may have broader explicitly authorized access, but its response
 must pass an agreed aggregate-only schema locally before remote forwarding.
 
 Search must never crawl source files. Corpus traversal belongs only to explicit
-build/update indexing. Preserve early results and cancel/poll contracts across
+build/update indexing. The owner-authorized --refresh beta may inspect a bounded
+set of already cataloged plain-text files and bank changes without traversal. Preserve early results and cancel/poll contracts across
 CLI, Python, background workers and documentation. Test the public shell route.
 
 The owner authorized repository publication, installation and local deployment
@@ -37,3 +38,9 @@ remote developers. Exact verification of known source with `rg` is a specialized
 exception, not permission to crawl a private corpus. Record concrete limitations
 and fallback needs in docs/feature-requests.md; do not silently replace Searchfu
 with another default search tool. Keep all examples and validation synthetic.
+
+Installed index location policy (owner, 2026-10-07): runtime_paths.py is the
+authoritative installed path family. The installed launcher and EMS adapter
+ignore inherited DB/ANN/candidate/data overrides. No backup discovery/fallback.
+Generic developer interfaces retain explicit paths for synthetic tests and
+deliberate migrations. Test deployed launcher and adapter parity after edits.

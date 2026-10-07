@@ -8,10 +8,12 @@ BIN_DIR="${SEARCHFU_BIN:-$HOME/.local/bin}"
 "$ENV_DIR/bin/python" -m pip install -r "$APP/requirements.txt"
 mkdir -p "$BIN_DIR"
 "$ENV_DIR/bin/python" - "$APP" "$ENV_DIR" "$BIN_DIR" <<'PY'
-import pathlib,shlex,sys
+import pathlib,sys
 app,env,bin_dir=map(pathlib.Path,sys.argv[1:])
+sys.path.insert(0,str(app))
+from runtime_paths import launcher_text
 launcher=bin_dir/'searchfu'
-launcher.write_text('#!/usr/bin/env bash\nset -euo pipefail\nexport SEARCHFU_PY='+shlex.quote(str(env/'bin/python'))+'\nexec bash '+shlex.quote(str(app/'searchfu.sh'))+' "$@"\n')
+launcher.write_text(launcher_text(app,env))
 launcher.chmod(0o755)
 PY
 "$ENV_DIR/bin/python" "$APP/search.py" stream --help >/dev/null

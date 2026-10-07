@@ -36,7 +36,7 @@ identity is not anonymization, version lineage, or proof of online availability.
 
 All regular, non-symlink files get filename metadata; supported text files also
 get indexed passages. `--names` uses literal substrings over stored paths and
-loads no model. Unsupported formats and files above `SEARCHFU_MAX_TEXT_BYTES`
+loads no model unless combined with `--refresh`. Unsupported formats and files above `SEARCHFU_MAX_TEXT_BYTES`
 (default 64 MiB) remain filename-only. No binary or huge-file content fallback
 occurs during query. Generated/install trees remain excluded. Filename lookup
 currently scans stored path metadata; it is not a specialized filename trigram

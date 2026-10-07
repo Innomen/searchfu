@@ -539,7 +539,7 @@ def main():
     if a.cmd=="build":
         roots=a.roots or ([str(VAULT)] if a.profile=="vault" else [str(Path.home())])
         build(db,roots,a.allow_model_download,not a.no_images,a.max_files)
-    elif a.cmd=="search": print(json.dumps(search(db,a.query,a.top_k,a.kind,a.after,a.before,a.path,not a.no_images,fts_only=a.fts,require_all=a.require_all, **{key:getattr(a,key) for key in ("scopes","collections_file","names_only","expansions","lexical_queries","semantic_queries","early","candidate_ef","rerank_model","rerank_limit","rerank_mix","rerank_early","deltas","deep","max_seconds","batch_rows","emit_seconds")}),indent=2))
+    elif a.cmd=="search": print(json.dumps(search(db,a.query,a.top_k,a.kind,a.after,a.before,a.path,not a.no_images,fts_only=a.fts,require_all=a.require_all, **{key:getattr(a,key) for key in ("refresh","scopes","collections_file","names_only","expansions","lexical_queries","semantic_queries","early","candidate_ef","rerank_model","rerank_limit","rerank_mix","rerank_early","deltas","deep","max_seconds","batch_rows","emit_seconds")}),indent=2))
     elif a.cmd in {"stream", "start", "poll", "cancel"}:
         from jobs import dispatch
         dispatch(a, db)

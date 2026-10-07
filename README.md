@@ -2,8 +2,9 @@
 
 Progressive, offline search for an LLM working over an existing local index.
 Return useful evidence immediately, improve it while the agent reads, and stop
-when it has enough. Search never walks or opens the source corpus: paths,
-snippets and embeddings are read from the index.
+when it has enough. Default searches read paths, snippets and embeddings from
+the index. Opt-in `--refresh` checks bounded known files and banks changes; it
+never walks source directories.
 
 ## The workflow
 
@@ -41,14 +42,21 @@ The wrapper uses CPU and text-only indexing. Supported files include text,
 Markdown, source code, JSON, YAML, CSV and subtitle text; DOCX extraction uses the standard library; text PDFs require optional `pypdf`.
 Scanned PDFs require separate explicit OCR; legacy binary Office formats are unsupported. The first build walks the supplied roots. `update` walks
 them again for change detection, but reads/embeds only changed files. There is
-no search-triggered update. Signatures use size and modification time, not a
+no search-triggered update unless the --refresh beta is enabled. Signatures use size and modification time, not a
 content hash. Huge files are currently read/chunked in memory before encoding.
 
-Existing installations: explicitly set `SEARCHFU_DIR` to your existing index.
+Developer shell/Python interfaces: explicitly set `SEARCHFU_DIR` to an existing index.
 The default now lives outside the source tree, at
 `$XDG_DATA_HOME/searchfu` or `~/.local/share/searchfu`. No old data is moved or
 rebuilt automatically. Direct Python and shell commands share the same DB
-location. `SEARCHFU_DB` overrides it.
+location. `SEARCHFU_DB` overrides the developer interfaces.
+
+The installed `~/.local/bin/searchfu` launcher and EMS adapter pin the database,
+ANN matrix, ANN builder input and candidate cache to `~/.local/share/searchfu`.
+They ignore inherited index-location overrides, including `XDG_DATA_HOME`; no
+backup lookup or fallback exists. A missing primary index fails rather than
+selecting another copy. The generic `bash searchfu.sh` and explicit Python DB
+arguments remain available for synthetic tests and deliberate migrations.
 
 ## Search while the agent works
 
@@ -220,3 +228,35 @@ the clone. Installation does not crawl or index anything.
 
 Copyright 2026 Innomen. All rights reserved. This source is publicly viewable,
 but no open-source license is granted. See [LICENSE](LICENSE).
+
+### Search-driven refresh beta
+
+`searchfu stream "synthetic topic" --scope example --refresh` opts into bounded
+read repair. The same flag works with `search` and `start`; Python callers pass
+`refresh=True` to `retrieve`. Default searches retain index-only behavior.
+
+After initial retrieval, check up to six likely result files and six rotating
+catalog entries. Eligible UTF-8 plain text is limited to 64 KiB per file. No
+directories are walked; new uncataloged files, larger files, document extraction
+and media still require explicit updates. Stored signatures detect changes.
+Symlink paths, unavailable mounts, excluded paths and unreadable files preserve
+old evidence. A nonblocking writer lock avoids competing refreshers.
+
+Changed files acquire a priority Archon lease for CUDA embedding in a separate
+process. Each file replacement is atomic; existing ANN IDs are never reused.
+Retrieval then opens a fresh snapshot if any files were updated. Events include
+aggregate `refresh` counters and a bounded status; `complete` describes retrieval
+coverage, not corpus freshness. Refresh failure preserves usable search results.
+`--fts` and `--names` remain model-free unless combined with `--refresh`.
+
+Cancellation stops further work and releases the lease. GPU admission, encoding
+and lease cleanup are cooperative: `--max-seconds` is a soft deadline during
+those operations. The beta may perform two full retrieval passes; it is not yet
+an overlapping query-guided exploration engine. There is no automatic ANN rebuild
+on each search. Index-only searches need no extra work.
+
+The installed default database and ANN storage were verified on NVMe, not USB,
+on 2026-10-07. Installed consumers ignore inherited index-location overrides; only explicit
+developer interfaces can select other locations.
+
+Source rollback instructions and database limits: [docs/rollback.md](docs/rollback.md).

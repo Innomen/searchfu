@@ -1,8 +1,4 @@
-"""Progressive retrieval from an existing index. Never reads source files.
-
-The only disk inputs are SQLite, matrix metadata and matrix blocks. All result
-snippets come from SQLite. Source traversal belongs exclusively to indexing.
-"""
+"""Progressive indexed retrieval with opt-in bounded known-file read repair."""
 from __future__ import annotations
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -291,7 +287,7 @@ def _refine(c,queries,semantic,lexical,limit,check):
     return exact
 
 
-def retrieve(db, query, *, top_k=12, kind="all", after=None, before=None,
+def _retrieve_snapshot(db, query, *, top_k=12, kind="all", after=None, before=None,
              path=None, fts_only=False, require_all=False, models=None,
              expansions=(), deep=False, cancelled=None, max_seconds=None,
              batch_rows=8192, emit_seconds=1.0, lexical_queries=None, semantic_queries=None,
@@ -464,3 +460,54 @@ def vector_candidates(db,qv,k,where,params):
             text=c.execute("SELECT text FROM chunks WHERE id=?",(cid,)).fetchone()[0]
             out.append((cid,text,p,kind,mt,mime,score))
         return out
+
+
+def retrieve(db, query, *, refresh=False, **options):
+    """Beta read repair is opt-in. All reported snippets still come from SQLite.
+
+    No directories are traversed. GPU admission/encoding cleanup is cooperative,
+    so max_seconds is a soft deadline during an in-flight refresh operation.
+    """
+    if not refresh:
+        yield from _retrieve_snapshot(db,query,**options)
+        return
+    import refresh as refresh_module
+    started=time.monotonic();budget=options.get('max_seconds')
+    external=options.get('cancelled')
+    def stopped():
+        return bool((external and external()) or (budget is not None and time.monotonic()-started>=budget))
+    delta=options.get('deltas',False);previous={};last=[]
+    from search import Models
+    inner={**options,'deltas':False,'models':options.get('models') or Models(False)}
+    report={'checked':0,'updated':0,'skipped':0,'status':'pending'}
+    def decorate(e):
+        nonlocal previous,last
+        e={**e,'elapsed_seconds':round(time.monotonic()-started,4),'refresh':dict(report)}
+        if 'results' in e:
+            last=e['results'];current={r['result_id']:r for r in last}
+            if delta:
+                e['changes']={'added':[r for k,r in current.items() if k not in previous],
+                  'updated':[r for k,r in current.items() if k in previous and r!=previous[k]],
+                  'removed':[k for k in previous if k not in current],'order':list(current)}
+                if e['stage'] not in ('done','cancelled'):e.pop('results')
+            previous=current
+        return e
+    terminal=None
+    for e in _retrieve_snapshot(db,query,**inner):
+        if e['stage']=='done':terminal=e
+        else:yield decorate(e)
+    if terminal is None:return
+    if stopped():
+        yield decorate({**terminal,'stage':'cancelled','complete':False,'reason':'cancelled' if external and external() else 'budget_exhausted'});return
+    yield decorate({'stage':'refresh','complete':False,'source_tree_walked':False,'scopes':terminal.get('scopes',[])})
+    selection={k:options.get(k) for k in ('kind','after','before','path','scopes','collections_file') if options.get(k) is not None}
+    try:
+        report=refresh_module.run(db,[r.get('evidence_path',r['path']) for r in terminal['results']],selection,stopped)
+    except Exception:
+        report={'checked':0,'updated':0,'skipped':0,'status':'refresh_failed'}
+    if stopped():
+        yield decorate({**terminal,'stage':'cancelled','complete':False,'reason':'cancelled' if external and external() else 'budget_exhausted'});return
+    if report['updated']:
+        if budget is not None:inner['max_seconds']=max(.001,budget-(time.monotonic()-started))
+        for e in _retrieve_snapshot(db,query,**inner):yield decorate(e)
+    else:yield decorate(terminal)

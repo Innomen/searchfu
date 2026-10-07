@@ -31,7 +31,10 @@ Validate its response locally against that aggregate schema before forwarding.
 Unexpected responses stay local; summaries and filenames are not automatically
 safe. Local workers are a privacy buffer, not a way to extract private content
 through a different tool. Explicit indexing is the only corpus traversal;
-search reads stored indexes and never goes door to door through source files.
+search reads stored indexes by default. Opt-in --refresh inspects only a bounded
+set of known files locally; it never discovers files by walking directories.
+Refresh child requests travel over stdin, never process arguments or logs.
+Remote developers still must not invoke it against real private content.
 
 Collection configuration contains private roots and mount-device identities and
 lives outside source. Filename-only catalogs are still private data. Content
