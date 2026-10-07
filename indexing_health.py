@@ -1,5 +1,5 @@
 """Durable numeric run reports; private failure targets never leave SQLite."""
-import errno,time
+import errno,sqlite3
 
 def initialize(c):
     c.executescript('''CREATE TABLE IF NOT EXISTS indexing_runs(
@@ -38,7 +38,9 @@ def record_walk(errors,exc=None,target=None):
 def summaries(c):
     try:
         rows=c.execute('SELECT id,started,finished,names_only,limited,read_errors,walk_errors FROM indexing_runs ORDER BY (walk_errors+read_errors>0 OR finished IS NULL) DESC,id DESC LIMIT 20').fetchall()
-    except Exception:return []  # Legacy read-only indexes have no report tables.
+    except sqlite3.OperationalError as exc:
+        if "no such table: indexing_runs" in str(exc):return []  # Legacy index.
+        raise
     result=[]
     for run,start,end,names,limited,reads,walks in rows:
         counts=dict(c.execute("SELECT category,count(*) FROM indexing_failures WHERE run_id=? AND phase='walk' GROUP BY category",(run,)))
