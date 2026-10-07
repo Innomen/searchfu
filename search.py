@@ -28,7 +28,7 @@ DATA = Path(os.environ.get("SEARCHFU_DIR", str(Path(os.environ.get("XDG_DATA_HOM
 TEXT_EXTS = {".md", ".txt", ".rst", ".org", ".py", ".js", ".ts", ".json", ".html", ".css", ".sh", ".toml", ".yaml", ".yml", ".csv", ".srt", ".vtt"}
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"}
 # Directories to skip during walks. Extend as needed for your corpus.
-SKIP_NAMES = {".git", ".cache", "node_modules", "__pycache__",
+SKIP_NAMES = {".git", ".cache", ".vault_rag", ".smart-env", ".obsidian", "node_modules", "__pycache__",
               ".venv", "site-packages", ".npm", ".cargo", ".rustup",
               ".pyenv", ".Trash-1000"}
 
@@ -336,7 +336,7 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
                 with c:
                     c.execute("INSERT INTO files(path,root,kind,mime,size,mtime,content_sig,indexed_at,source_device) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,kind=excluded.kind,mime=excluded.mime,size=excluded.size,mtime=excluded.mtime,source_device=excluded.source_device",(path,str(root),kind,mimetypes.guess_type(path)[0],st.st_size,st.st_mtime,None,None,st.st_dev))
                     fid=c.execute("SELECT id FROM files WHERE path=?",(path,)).fetchone()[0]
-                    if old and old[1]!=file_sig(st):
+                    if old and old[1] is not None and old[1]!=file_sig(st):
                         c.execute("DELETE FROM chunks WHERE file_id=?",(fid,));c.execute("UPDATE files SET content_hash=NULL,content_sig=NULL,indexed_at=NULL WHERE id=?",(fid,))
                 changed+=1
             elif kind == "text":

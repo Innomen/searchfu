@@ -18,6 +18,9 @@ class ImportTests(unittest.TestCase):
                 self.assertEqual(rag_import.import_index(source,root,db)['chunks_imported'],0)
             results=list(retrieve(db,'cancellation',fts_only=True))[-1]['results']
             self.assertEqual(len(results),1)
+            with patch.dict(os.environ,{'SEARCHFU_CUDA':'0','SEARCHFU_RESERVE_BYTES':str(1024**3)}),contextlib.redirect_stdout(io.StringIO()):
+                search.build(db,[str(root)],images=False,names_only=True)
+            self.assertEqual(len(list(retrieve(db,'cancellation',fts_only=True))[-1]['results']),1)
             c=search.connect(db,readonly=True)
             try:self.assertEqual(c.execute('SELECT source_device FROM files').fetchone()[0],root.stat().st_dev)
             finally:c.close()
