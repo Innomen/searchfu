@@ -41,3 +41,10 @@ Current SQLite files/chunks, FTS, retained embeddings, appendable matrix cache, 
 Now: explicit known-file indexing can refresh changed documents without a directory crawl and does not prune sibling records. Preserve backward compatibility, separate public code from local data, retain recoverable source locators, document feature-version boundaries, make coverage explicit, and measure scoped text queries against the adopted index. Extend metadata additively when a concrete producer/consumer needs it; avoid speculative empty schemas.
 
 Later: choose regional embeddings and visual indexes, expose example/crop queries, implement feedback and neighborhood browsing, select video sampling/refinement policies, integrate archive-member extraction, add direct audio similarity and optional image generation. No bulk visual/video/audio indexing or model replacement is implied by this document.
+
+Future exclusion policies should offer a readable gitignore-like interface per
+collection. Existing exclusions are explicit directory prefixes, not a complete
+gitignore parser. Keep intentionally excluded material distinct from failed
+attempts and unprocessed features; exclusions are coverage policy, not errors.
+Do not assume excluded content has been searched. Apply these rules during
+indexing; retrieval continues to use stored inventory without crawling.
