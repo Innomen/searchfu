@@ -348,6 +348,8 @@ def retrieve(db, query, *, top_k=12, kind="all", after=None, before=None,
             snapshot={"update_incomplete":state.get("last_build_started",0)>state.get("last_build_finished",0),
                       "last_build_errors":state.get("last_build_errors",0),
                       "last_build_walk_errors":state.get("last_build_walk_errors",0)}
+            from indexing_health import summaries
+            snapshot["indexing_runs"]=summaries(c)
             yield event("keyword",last_results,complete=False,query_variants=len(texts),lexical_variants=len(lexical_texts),semantic_variants=len(semantic_texts),index_health=snapshot,
                         query_guidance="Use 3-8 distinctive terms instead of a narrative; --expand adds another angle." if any(len(re.findall(r"[\w-]+",t))>12 for t in lexical_texts) else None)
             check()

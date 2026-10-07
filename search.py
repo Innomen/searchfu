@@ -69,6 +69,8 @@ def connect(db: Path, readonly=False) -> sqlite3.Connection:
       CREATE INDEX IF NOT EXISTS files_kind ON files(kind);
       CREATE INDEX IF NOT EXISTS chunks_file ON chunks(file_id);
     """)
+    from indexing_health import initialize
+    initialize(c)
     # Bind new matrix generations to this canonical index; legacy data is migrated
     # only during an explicit indexing operation, never during search.
     c.execute("INSERT OR IGNORE INTO index_state VALUES('index_id', lower(hex(randomblob(16))))")
@@ -164,6 +166,7 @@ class Models:
         return v.cpu().numpy()
 
 def iter_files(roots, walk_errors=None, excluded=(), devices=None, all_files=False):
+    from indexing_health import record_walk
     excluded=[str(Path(p).absolute()).rstrip("/") for p in excluded]
     def denied(p): return any(str(p)==x or str(p).startswith(x+"/") for x in excluded)
     for root in (Path(r).absolute() for r in roots):
@@ -174,18 +177,19 @@ def iter_files(roots, walk_errors=None, excluded=(), devices=None, all_files=Fal
             if all_files or ext in TEXT_EXTS or ext in IMAGE_EXTS or ext in DOCUMENT_EXTS:
                 yield root.parent,root,"image" if ext in IMAGE_EXTS else "text" if ext in TEXT_EXTS or ext in DOCUMENT_EXTS else "file"
             continue
-        if not root.is_dir() or denied(root):
-            if walk_errors is not None: walk_errors.append(True)
+        if denied(root):continue
+        if not root.is_dir():
+            record_walk(walk_errors,FileNotFoundError(2,'',str(root)))
             continue
-        for base, dirs, names in os.walk(root, followlinks=False, onerror=lambda e: walk_errors.append(True) if walk_errors is not None else None):
+        for base, dirs, names in os.walk(root, followlinks=False, onerror=lambda e: record_walk(walk_errors,e)):
             dirs[:] = [d for d in dirs if d not in SKIP_NAMES and not denied(Path(base)/d) and not (Path(base)/d).is_symlink()]
             if devices and str(root) in devices:
                 retained=[]
                 for d in dirs:
                     try:
                         if (Path(base)/d).stat().st_dev in (devices[str(root)] if isinstance(devices[str(root)],list) else [devices[str(root)]]): retained.append(d)
-                    except OSError:
-                        if walk_errors is not None: walk_errors.append(True)
+                    except OSError as exc:
+                        record_walk(walk_errors,exc,Path(base)/d)
                 dirs[:]=retained
             for name in names:
                 p=Path(base)/name
@@ -328,19 +332,24 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
                           (str(p),str(root),kind,mimetypes.guess_type(str(p))[0],st.st_size,st.st_mtime,st.st_dev))
             category='dependency' if isinstance(exc,ImportError) else 'permission' if isinstance(exc,PermissionError) else 'read' if isinstance(exc,OSError) else 'extraction'
             key='last_build_read_errors_'+category
-            with c:c.execute('INSERT INTO index_state VALUES(?,1) ON CONFLICT(key) DO UPDATE SET value=value+1',(key,))
+            with c:
+                c.execute('INSERT INTO index_state VALUES(?,1) ON CONFLICT(key) DO UPDATE SET value=value+1',(key,))
+                c.execute('INSERT INTO indexing_failures VALUES(?,?,?,?,?)',(run_id,'read',category,str(p),getattr(exc,'errno',None)))
             if errors <= 25:
                 err_log.write(json.dumps({"phase": "read", "error": "file_read_failed", "category":category}) + "\n"); err_log.flush()
         if its:
             queue_items.extend(its); queue_chunks += sum(len(x["chunks"]) for x in its)
 
-    walk_errors = []
+    from indexing_health import WalkFailures,record_walk,category
+    with c:
+        run_id=c.execute('INSERT INTO indexing_runs(started,names_only,limited) VALUES(?,?,?)',(time.time(),int(names_only),int(bool(max_files)))).lastrowid
+    walk_errors = WalkFailures(c,run_id)
     try:
         for n, (root, p, kind) in enumerate(iter_files(roots, walk_errors,excluded,devices,all_files=True), 1):
             if max_files and n > max_files: break
             try: st = p.stat()
-            except OSError:
-                walk_errors.append(True); continue
+            except OSError as exc:
+                record_walk(walk_errors,exc,p); continue
             if not stat.S_ISREG(st.st_mode): continue
             path = str(p)
             c.execute('INSERT OR IGNORE INTO seen_paths VALUES(?)',(path,))
@@ -398,11 +407,12 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
                 with c:
                     c.execute('DELETE FROM files WHERE root=? AND NOT EXISTS (SELECT 1 FROM seen_paths WHERE seen_paths.path=files.path)',(root,))
         with c:
+            c.execute('UPDATE indexing_runs SET finished=?,read_errors=?,walk_errors=? WHERE id=?',(time.time(),errors,len(walk_errors),run_id))
             for key, value in {"last_build_finished": time.time(), "last_build_errors": errors,
                                "last_build_changed": changed, "last_build_unchanged": skipped,
                                "last_build_walk_errors": len(walk_errors)}.items():
                 c.execute("INSERT OR REPLACE INTO index_state VALUES(?,?)", (key,value))
-        print(json.dumps({"done": True, "ts": _ts(), "changed": changed, "unchanged": skipped, "errors": errors, "walk_errors": len(walk_errors)}), flush=True)
+        print(json.dumps({"done": True, "ts": _ts(), "changed": changed, "unchanged": skipped, "errors": errors, "walk_errors": len(walk_errors),"coverage_complete":not bool(max_files or errors or walk_errors),"walk_error_categories":dict(__import__("collections").Counter(walk_errors))}), flush=True)
     except Exception as exc:
         print(json.dumps({"ok": False, "error": "database_build_failed",
                           "exception_class": type(exc).__name__,
@@ -539,6 +549,8 @@ def main():
                 "chunk_id_upper_bound":c.execute("SELECT MAX(rowid) FROM chunks").fetchone()[0] or 0,
                 "chunks":c.execute("SELECT COUNT(*) FROM chunks").fetchone()[0],
                 "bytes":db.stat().st_size if db.exists() else 0, "update":state}
+        from indexing_health import summaries
+        status["indexing_runs"]=summaries(c)
         status["update_incomplete"]=state.get("last_build_started",0)>state.get("last_build_finished",0)
         if a.scope:
             from collections_config import scope_sql

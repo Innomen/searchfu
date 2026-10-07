@@ -81,3 +81,11 @@ already stored paths for device filters. It never traverses source trees or
 re-embeds passages. The target must be new. Build ANN caches from that copy's
 stored vectors before switching the local configured database. Legacy data lack
 byte hashes until a separately requested content refresh establishes them.
+
+Indexing diagnostics retain per-run completion and category counts. Permission
+denials, disappeared targets, I/O errors and unknown causes are distinct;
+failed target paths remain only in the local database for diagnosis or bounded
+retry. Status and progressive search expose aggregate run reports, never those
+paths. A later successful small refresh does not erase earlier coverage gaps.
+A traversal event does not tell how many files were missed inside a directory.
+Older count-only failures cannot be retrospectively classified.
