@@ -48,3 +48,11 @@ gitignore parser. Keep intentionally excluded material distinct from failed
 attempts and unprocessed features; exclusions are coverage policy, not errors.
 Do not assume excluded content has been searched. Apply these rules during
 indexing; retrieval continues to use stored inventory without crawling.
+
+Scopes may also be conceptual: a nearby AI can compile user intent into saved
+rules and indexed classifications using existing metadata. Users need not
+enumerate every included or excluded path. Preserve intent, rule versions and
+reviewable decisions; new local inspection produces reusable indexing evidence.
+Retrieval applies stored scope knowledge without crawling or repeating that
+classification for every search. Private evidence stays local. This remains
+architectural guidance rather than an implemented conceptual-scope interface.
