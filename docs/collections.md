@@ -72,3 +72,12 @@ SQLite vectors. Filename-only builds skip that step and load no model.
 
 `searchfu status --agent --scope workspace` reports catalog and content-file
 counts for a selected view without exposing paths or passages.
+
+Existing Searchfu SQLite databases can be adopted without re-indexing:
+`python sqlite_import.py OLD_DATABASE NEW_DATABASE`. The old database remains
+read-only; SQLite backup includes committed WAL data. The copy receives additive
+metadata migrations, preserves file/chunk IDs and stored vectors, and only stats
+already stored paths for device filters. It never traverses source trees or
+re-embeds passages. The target must be new. Build ANN caches from that copy's
+stored vectors before switching the local configured database. Legacy data lack
+byte hashes until a separately requested content refresh establishes them.

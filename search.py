@@ -342,7 +342,7 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
                 skipped += 1
                 continue
             old = c.execute("SELECT id,content_sig,content_hash FROM files WHERE path=?", (path,)).fetchone()
-            if old and old[1] == file_sig(st) and (kind!="text" or old[2]):
+            if old and old[1] == file_sig(st):
                 skipped += 1
             elif names_only or kind=="file" or (kind=="image" and not images) or st.st_size>int(os.environ.get("SEARCHFU_MAX_TEXT_BYTES",str(64*1024**2))):
                 with c:
