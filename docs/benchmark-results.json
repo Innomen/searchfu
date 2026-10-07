@@ -1,0 +1,84 @@
+{
+  "kind": "synthetic_warm_cache",
+  "rows": 30000,
+  "files": 3000,
+  "dimensions": 384,
+  "queries": 5,
+  "cpu_only": true,
+  "encoder": "injected_normalized_vectors",
+  "threads": "1",
+  "limitations": [
+    "Not a large-drive or cold-cache benchmark.",
+    "Random vectors are not human relevance judgments.",
+    "HNSW measures a backend, not the complete QMD or LEANN applications."
+  ],
+  "progressive": {
+    "int4": {
+      "no_match_keyword_first_median_ms": 0.5,
+      "semantic_first_median_ms": 16.8,
+      "refined_done_median_ms": 65.4,
+      "deep_done_median_ms": 184.598,
+      "quantized_file_recall_at_12": 0.8333,
+      "refined_file_recall_at_12": 1.0,
+      "deep_file_recall_at_12": 1.0,
+      "cache_bytes": 6241152
+    },
+    "int8": {
+      "no_match_keyword_first_median_ms": 0.5,
+      "semantic_first_median_ms": 13.1,
+      "refined_done_median_ms": 48.2,
+      "deep_done_median_ms": 164.783,
+      "quantized_file_recall_at_12": 0.9833,
+      "refined_file_recall_at_12": 1.0,
+      "deep_file_recall_at_12": 1.0,
+      "cache_bytes": 12001152
+    },
+    "fp16": {
+      "no_match_keyword_first_median_ms": 0.5,
+      "semantic_first_median_ms": 12.0,
+      "refined_done_median_ms": 41.1,
+      "deep_done_median_ms": 160.839,
+      "quantized_file_recall_at_12": 1.0,
+      "refined_file_recall_at_12": 1.0,
+      "deep_file_recall_at_12": 1.0,
+      "cache_bytes": 23521152
+    }
+  },
+  "keyword_query_length": {
+    "short_tags": {
+      "words": 3,
+      "median_ms": 63.626
+    },
+    "long_narrative": {
+      "words": 34,
+      "median_ms": 109.299
+    }
+  },
+  "cancel_after_keywords_ms": 0.103,
+  "legacy_blocking_warm_median_ms": 18.617,
+  "database_bytes": 63930368,
+  "hnsw_backend": {
+    "build_seconds": 13.25,
+    "queries": {
+      "50": {
+        "median_ms": 0.958,
+        "file_recall_at_12": 0.65
+      },
+      "500": {
+        "median_ms": 2.118,
+        "file_recall_at_12": 0.7667
+      },
+      "2000": {
+        "median_ms": 5.262,
+        "file_recall_at_12": 0.9833
+      }
+    },
+    "index_bytes": 50660108,
+    "load_from_warm_disk_ms": 22.215
+  },
+  "cached_minilm_encoding_median_ms": {
+    "short_tags": 6.765,
+    "long_narrative": 11.858
+  },
+  "source_tree_walked": false
+}

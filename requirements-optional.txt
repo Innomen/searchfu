@@ -1,0 +1,6 @@
+# Only for the opt-in early semantic graph.
+hnswlib>=0.8
+# PDF text extraction during explicit indexing only. DOCX uses the stdlib.
+pypdf>=5
+# CrossEncoder offline-loading contract for optional learned reranking.
+sentence-transformers>=5.2
