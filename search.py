@@ -233,6 +233,7 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
     with c:
         c.execute("UPDATE index_state SET value=MAX(value,?) WHERE key='chunk_high_water'", (high,))
         c.execute("INSERT OR REPLACE INTO index_state VALUES('last_build_started',?)", (time.time(),))
+        c.execute("DELETE FROM index_state WHERE key LIKE 'last_build_read_errors_%'")
         # One-time repair of provably truncated legacy multi-batch files.
         if not c.execute("SELECT 1 FROM index_state WHERE key='stream_repair_v1'").fetchone():
             c.execute("UPDATE files SET content_sig=NULL,indexed_at=NULL WHERE id IN (SELECT file_id FROM chunks GROUP BY file_id HAVING MIN(ordinal)>0)")
@@ -308,10 +309,19 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
         nonlocal errors, queue_items, queue_chunks
         its = None
         try: its = fut.result()
-        except Exception:
+        except Exception as exc:
             errors += 1
+            root,p,kind,st=jobs[fut]
+            # A failed extraction still yields a filename catalog entry. Keep
+            # existing evidence intact, with build errors marking freshness.
+            with c:
+                c.execute('INSERT INTO files(path,root,kind,mime,size,mtime,source_device) VALUES(?,?,?,?,?,?,?) ON CONFLICT(path) DO NOTHING',
+                          (str(p),str(root),kind,mimetypes.guess_type(str(p))[0],st.st_size,st.st_mtime,st.st_dev))
+            category='dependency' if isinstance(exc,ImportError) else 'permission' if isinstance(exc,PermissionError) else 'read' if isinstance(exc,OSError) else 'extraction'
+            key='last_build_read_errors_'+category
+            with c:c.execute('INSERT INTO index_state VALUES(?,1) ON CONFLICT(key) DO UPDATE SET value=value+1',(key,))
             if errors <= 25:
-                err_log.write(json.dumps({"phase": "read", "error": "file_read_failed"}) + "\n"); err_log.flush()
+                err_log.write(json.dumps({"phase": "read", "error": "file_read_failed", "category":category}) + "\n"); err_log.flush()
         if its:
             queue_items.extend(its); queue_chunks += sum(len(x["chunks"]) for x in its)
 
@@ -343,7 +353,7 @@ def _build(db, roots, allow_download=False, images=True, max_files=0, *, exclude
                 if len(jobs) >= workers * 2:
                     done, _ = cf.wait(list(jobs), return_when=cf.FIRST_COMPLETED)
                     for f in done: drain(f); del jobs[f]
-                jobs[ex.submit(_file_items, root, p, kind, st, max_sub)] = True
+                jobs[ex.submit(_file_items, root, p, kind, st, max_sub)] = (root,p,kind,st)
             elif images and kind == "image":
                 require_capacity(Path(db).parent, 1024*1024, phase="image_write")
                 try:

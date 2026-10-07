@@ -211,7 +211,7 @@ for stored filename lookup without models. Scope configuration and index data
 remain outside the application. [Collection setup and semantics](docs/collections.md)
 cover mount boundaries, copy preference and offline backups.
 
-Install from your clone with `bash install.sh`; it creates an isolated environment
+Install from your clone with `bash install.sh`; it creates a dedicated environment
 and a `~/.local/bin/searchfu` launcher. Existing compatible system ML packages can
 be reused without modifying their environment. Runtime content remains outside
 the clone. Installation does not crawl or index anything.

@@ -35,3 +35,11 @@ class ImportTests(unittest.TestCase):
             c=search.connect(Path(tmp)/'index.sqlite3',readonly=True)
             try:self.assertEqual(c.execute('SELECT count(*) FROM files').fetchone()[0],0)
             finally:c.close()
+
+    def test_failed_extraction_keeps_filename_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'corpus';root.mkdir();(root/'unreadable.docx').write_bytes(b'synthetic invalid zip')
+            with patch.dict(os.environ,{'SEARCHFU_CUDA':'0','SEARCHFU_RESERVE_BYTES':str(1024**3)}),contextlib.redirect_stdout(io.StringIO()):
+                search.build(Path(tmp)/'index.sqlite3',[str(root)],images=False)
+            rows=list(retrieve(Path(tmp)/'index.sqlite3','unreadable.docx',names_only=True))[-1]['results']
+            self.assertEqual(len(rows),1);self.assertIsNone(rows[0]['snippet'])
