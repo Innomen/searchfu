@@ -247,13 +247,17 @@ def _full_pass(c,queries,limit,where,params,check,batch_rows,lower=0,initial=Non
     scanned,scored,skipped=0,0,0
     while True:
         check()
-        rows=cursor.fetchmany(min(batch_rows,500) if where else batch_rows)
+        rows=cursor.fetchmany(batch_rows)
         if not rows: break
         if where:
             ids=[r[0] for r in rows]
-            rows=list(c.execute("SELECT c.id,f.path,f.kind,f.mtime,f.mime,c.embedding "
-                                "FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN ("+
-                                ",".join("?"*len(ids))+") ORDER BY c.id",ids))
+            rows=[]
+            # Keep SQL bindings portable without shrinking numerical batches.
+            for start in range(0,len(ids),500):
+                part=ids[start:start+500]
+                rows.extend(c.execute("SELECT c.id,f.path,f.kind,f.mtime,f.mime,c.embedding "
+                                      "FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN ("+
+                                      ",".join("?"*len(part))+") ORDER BY c.id",part))
         scanned+=len(rows)
         valid=[r for r in rows if not corpus_filter.is_junk(r[1]) and r[-1] is not None and len(r[-1])==1536]
         skipped+=len(rows)-len(valid)
