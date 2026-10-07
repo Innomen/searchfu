@@ -34,7 +34,7 @@ Searchfu already stores normalized CLIP whole-image embeddings and can compare a
 
 The local OCR ingestion tool produces local OCR markdown sidecars and avoids overwriting existing outputs. The local transcription tool decodes audio and produces Whisper transcripts, word-timed segments, SRT/VTT and markdown sidecars; its fixups route can reuse transcription. Connect these derivatives to source/segment identities rather than repeatedly OCRing or transcribing. Existing sidecars are useful searchable evidence, but do not replace direct visual features.
 
-Current SQLite files/chunks, FTS, retained embeddings, appendable matrix cache, collection scopes, progressive result events and cancellation are reusable foundations. Scope selection must also reduce retrieval work: filtering results from an entire archive is not enough. Small-corpus timings are not evidence of archive-scale scoped performance; benchmark adopted indexes independently.
+Current SQLite files/chunks, FTS, retained embeddings, appendable matrix cache, collection scopes, progressive result events and cancellation are reusable foundations. Scope selection must also reduce retrieval work: filtering results from an entire archive is not enough. A substantially smaller filtered corpus now uses its indexed full-precision vectors instead of scoring the global matrix; the inventory-to-chunk route avoids reading unrelated vector blobs. Small-corpus timings are not evidence of archive-scale scoped performance; benchmark adopted indexes independently.
 
 ## Small decisions now; work that can wait
 

@@ -219,17 +219,41 @@ def _matrix_pass(c, ann, queries, limit, where, params, check, batch_rows, initi
         yield best,progress
 
 
+def _scoped_ids(c, where, params, lower=0, limit=None):
+    # Inventory first: do not walk millions of vector blobs to find a small scope.
+    sql = ("SELECT c.id FROM files f CROSS JOIN chunks c INDEXED BY chunks_file "
+           "ON c.file_id=f.id WHERE c.id>?" + _extra(where) + " ORDER BY c.id")
+    values = [lower] + params
+    if limit is not None:
+        sql += " LIMIT ?"; values.append(limit)
+    return c.execute(sql, values)
+
+
+def _prefer_scoped_vectors(c, ann, where, params):
+    if not where: return False
+    total = int(_metadata(ann,c)["total_kept"])
+    cutoff = min(1_000_000, total // 8)
+    if cutoff < 1: return False
+    # No vector reads; the bound also limits the temporary ID sort.
+    return len(list(_scoped_ids(c,where,params,limit=cutoff+1))) <= cutoff
+
+
 def _full_pass(c,queries,limit,where,params,check,batch_rows,lower=0,initial=None):
     import numpy as np
     best = initial if initial is not None else [{} for _ in queries]
     sql=("SELECT c.id,f.path,f.kind,f.mtime,f.mime,c.embedding FROM chunks c "
          "JOIN files f ON f.id=c.file_id WHERE c.id>?"+_extra(where)+" ORDER BY c.id")
-    cursor=c.execute(sql,[lower]+params)
+    cursor = _scoped_ids(c,where,params,lower) if where else c.execute(sql,[lower]+params)
     scanned,scored,skipped=0,0,0
     while True:
         check()
-        rows=cursor.fetchmany(batch_rows)
+        rows=cursor.fetchmany(min(batch_rows,500) if where else batch_rows)
         if not rows: break
+        if where:
+            ids=[r[0] for r in rows]
+            rows=list(c.execute("SELECT c.id,f.path,f.kind,f.mtime,f.mime,c.embedding "
+                                "FROM chunks c JOIN files f ON f.id=c.file_id WHERE c.id IN ("+
+                                ",".join("?"*len(ids))+") ORDER BY c.id",ids))
         scanned+=len(rows)
         valid=[r for r in rows if not corpus_filter.is_junk(r[1]) and r[-1] is not None and len(r[-1])==1536]
         skipped+=len(rows)-len(valid)
@@ -361,10 +385,13 @@ def retrieve(db, query, *, top_k=12, kind="all", after=None, before=None,
             last_emit=0.0
             stage="semantic"
             matrix_used=False
+            scoped_vectors=False
             if (ann/"ann.meta.json").is_file():
                 with _matrix_lock(ann,check):
                     # Full rebuild may have invalidated metadata while we waited.
                     if (ann/"ann.meta.json").is_file():
+                        scoped_vectors=_prefer_scoped_vectors(c,ann,where,params)
+                    if (ann/"ann.meta.json").is_file() and not scoped_vectors:
                         matrix_used=True
                         for semantic,last_progress in _matrix_pass(c,ann,queries,pool,where,params,check,batch_rows,initial=semantic):
                             if time.monotonic()-last_emit>=emit_seconds:
@@ -373,7 +400,7 @@ def retrieve(db, query, *, top_k=12, kind="all", after=None, before=None,
                                 last_emit=time.monotonic()
             if not matrix_used:
                 stage="deep"
-                yield event(stage,complete=False,reason="matrix_missing_using_indexed_vectors")
+                yield event(stage,complete=False,reason="scope_smaller_than_matrix" if scoped_vectors else "matrix_missing_using_indexed_vectors")
                 for semantic,last_progress in _full_pass(c,queries,pool,where,params,check,batch_rows,initial=semantic):
                     if time.monotonic()-last_emit>=emit_seconds:
                         check();last_results=results(lexical,semantic)
