@@ -29,3 +29,11 @@ remains all rights reserved. Do not substitute an open-source license.
 The owner objects to granting military use permission; any future proposal
 allowing reuse must address that restriction and requires the owner's choice.
 Public visibility and permission to reuse are separate decisions.
+
+Searchfu-first integration policy: local consumers should use indexed Searchfu
+for filename, keyword and semantic discovery, with short queries, explicit
+collections and progressive cancellation. Privacy rules above still apply to
+remote developers. Exact verification of known source with `rg` is a specialized
+exception, not permission to crawl a private corpus. Record concrete limitations
+and fallback needs in docs/feature-requests.md; do not silently replace Searchfu
+with another default search tool. Keep all examples and validation synthetic.
