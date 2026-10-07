@@ -17,11 +17,18 @@ class LeaseTests(unittest.TestCase):
                 with gpu_lease.lease():self.fail('entered GPU work')
         self.assertEqual(call.call_count,1)
     def test_lost_renewal_stops_embedding_and_still_releases(self):
-        stop=threading.Event();lost=threading.Event();calls=[]
+        Event=threading.Event;stop=Event();lost=Event();calls=[];events=iter([stop,lost])
         def call(route,body):
             calls.append(route);return {'ok':route!='/lease/renew','token':'synthetic-token'}
-        with patch.object(gpu_lease,'call',side_effect=call),patch.object(gpu_lease.threading,'Event',side_effect=[stop,lost]),patch.object(stop,'wait',return_value=False):
+        with patch.object(gpu_lease,'call',side_effect=call),patch.object(gpu_lease.threading,'Event',side_effect=lambda:next(events,None) or Event()),patch.object(stop,'wait',return_value=False):
             with gpu_lease.lease() as check:
                 self.assertTrue(lost.wait(1))
                 with self.assertRaises(RuntimeError):check()
         self.assertEqual(calls,['/lease/acquire','/lease/renew','/lease/release'])
+
+    def test_thread_start_failure_still_releases_lease(self):
+        with patch.object(gpu_lease,'call',return_value={'ok':True,'token':'synthetic-token'}) as call,patch.object(gpu_lease.threading,'Thread') as thread:
+            thread.return_value.start.side_effect=RuntimeError('synthetic start failure')
+            with self.assertRaises(RuntimeError):
+                with gpu_lease.lease():self.fail('entered after failed renewal thread')
+        self.assertEqual(call.call_args.args,('/lease/release',{'token':'synthetic-token'}))

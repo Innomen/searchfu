@@ -20,10 +20,13 @@ def lease():
         while not stop.wait(300):
             if not call('/lease/renew',{'token':token,'ttl_secs':3600}).get('ok'):
                 lost.set();return
-    worker=threading.Thread(target=renew,daemon=True);worker.start()
+    worker=threading.Thread(target=renew,daemon=True);started=False
     def check():
         if lost.is_set():raise RuntimeError('gpu_lease_lost')
-    try:yield check
+    try:
+        worker.start();started=True
+        yield check
     finally:
-        stop.set();worker.join(timeout=95)
+        stop.set()
+        if started:worker.join(timeout=95)
         if not call('/lease/release',{'token':token}).get('ok'):raise RuntimeError('gpu_lease_release_unconfirmed')
