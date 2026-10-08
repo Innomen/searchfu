@@ -1,10 +1,10 @@
 # Agent search protocol
 
 The agent starts retrieval, consumes early evidence while deeper work proceeds,
-and cancels if it has enough. Default searches read indexed material exclusively.
-The opt-in `--refresh` beta checks up to twelve known plain-text files (64 KiB
-each), including a rotating catalog sample, and banks changed content before
-retrieving from a fresh snapshot. No source directories are traversed.
+and cancels if it has enough. Default refresh checks up to twelve known plain-text
+files (64 KiB each) alongside retrieval, including a rotating catalog sample,
+and banks changed content before a fresh retrieval snapshot. Use `--no-refresh`
+or `refresh=False` for index-only operations. No source directories are traversed.
 Refresh events expose bounded counters/status; failures preserve old evidence.
 Cancellation and time budgets are cooperative during GPU admission/encoding.
 
@@ -73,9 +73,10 @@ relevant concept. Agreement between stages is evidence, not a completeness test.
 
 ## Operating constraints
 
-Default searches are read-only with respect to index content. The explicit
-`--refresh` option permits bounded transactional read repair through a managed
-priority GPU lease; it may add a second retrieval pass. Background state contains
+Default searches permit bounded transactional repair through a shared Archon
+GPU lease that keeps the LLM resident. Admission failure skips embedding; there
+is no exclusive fallback. `--no-refresh` disables source checks and writes.
+An update may add a second retrieval pass. Background state contains
 queries and evidence, belongs outside the source project, and is owner-only.
 Do not put private results into shared logs. Source access is a separate explicit
 operation when the user wants to open a particular result. Only `build`/`update`

@@ -2,9 +2,9 @@
 
 Progressive, offline search for an LLM working over an existing local index.
 Return useful evidence immediately, improve it while the agent reads, and stop
-when it has enough. Default searches read paths, snippets and embeddings from
-the index. Opt-in `--refresh` checks bounded known files and banks changes; it
-never walks source directories.
+when it has enough. Every search also checks a bounded set of known files and
+banks changes while indexed retrieval proceeds. Searching helps keep the index
+fresh. No source directories are walked; use `--no-refresh` for index-only search.
 
 ## The workflow
 
@@ -42,7 +42,7 @@ The wrapper uses CPU and text-only indexing. Supported files include text,
 Markdown, source code, JSON, YAML, CSV and subtitle text; DOCX extraction uses the standard library; text PDFs require optional `pypdf`.
 Scanned PDFs require separate explicit OCR; legacy binary Office formats are unsupported. The first build walks the supplied roots. `update` walks
 them again for change detection, but reads/embeds only changed files. There is
-no search-triggered update unless the --refresh beta is enabled. Signatures use size and modification time, not a
+also bounded search-triggered refresh of already cataloged plain text. Signatures use size and modification time, not a
 content hash. Huge files are currently read/chunked in memory before encoding.
 
 Developer shell/Python interfaces: explicitly set `SEARCHFU_DIR` to an existing index.
@@ -229,31 +229,44 @@ the clone. Installation does not crawl or index anything.
 Copyright 2026 Innomen. All rights reserved. This source is publicly viewable,
 but no open-source license is granted. See [LICENSE](LICENSE).
 
-### Search-driven refresh beta
+### Search-driven refresh
 
-`searchfu stream "synthetic topic" --scope example --refresh` opts into bounded
-read repair. The same flag works with `search` and `start`; Python callers pass
-`refresh=True` to `retrieve`. Default searches retain index-only behavior.
+`search`, `stream`, `start`, the Python retrieval API and the installed EMS
+adapter refresh by default. Use `--no-refresh` or `refresh=False` to opt out.
+`--refresh` remains accepted for compatibility.
 
-After initial retrieval, check up to six likely result files and six rotating
-catalog entries. Eligible UTF-8 plain text is limited to 64 KiB per file. No
-directories are walked; new uncataloged files, larger files, document extraction
-and media still require explicit updates. Stored signatures detect changes.
-Symlink paths, unavailable mounts, excluded paths and unreadable files preserve
-old evidence. A nonblocking writer lock avoids competing refreshers.
+At the first indexed evidence stage, a separate worker checks up to six result
+files and six rotating catalog entries while retrieval continues. Eligible UTF-8
+plain text is limited to 64 KiB per file. No directories are walked; new files,
+larger files, document extraction and media still need explicit updates.
+Signatures detect changes. Symlinks, unavailable mounts, exclusions and unreadable
+files preserve old evidence. A nonblocking writer lock avoids competing refreshers.
 
-Changed files acquire a priority Archon lease for CUDA embedding in a separate
-process. Each file replacement is atomic; existing ANN IDs are never reused.
-Retrieval then opens a fresh snapshot if any files were updated. Events include
-aggregate `refresh` counters and a bounded status; `complete` describes retrieval
-coverage, not corpus freshness. Refresh failure preserves usable search results.
-`--fts` and `--names` remain model-free unless combined with `--refresh`.
+Changed text uses Archon's shared GPU lease: the LLM stays loaded, with its
+context unchanged. Embedding uses batches of at most eight chunks and a 256 MiB
+PyTorch allocator cap. CUDA context/library overhead is additional. A synthetic
+measurement used 274–322 MiB total process VRAM across batches 1–8; the complete
+search/refresh smoke test used 264 MiB with the same resident LLM throughout.
+These are measurements, not a universal memory guarantee. Shared admission
+requires at least 640 MiB free and refuses active inference, competing leases,
+queued work, inhibit and foreground guards. Missing Archon/shared support or
+insufficient room skips embedding; it never falls back to an exclusive lease
+or bulk CPU embedding. Explicit bulk indexing retains its separate priority lease.
+See [scheduler integration](docs/shared-refresh.md) for the required API and patch.
 
-Cancellation stops further work and releases the lease. GPU admission, encoding
-and lease cleanup are cooperative: `--max-seconds` is a soft deadline during
-those operations. The beta may perform two full retrieval passes; it is not yet
-an overlapping query-guided exploration engine. There is no automatic ANN rebuild
-on each search. Index-only searches need no extra work.
+Each file replacement is atomic; existing ANN IDs are never reused. After the
+worker exits, retrieval opens a fresh snapshot if anything changed. Early evidence
+stays available; refresh failures preserve usable results. Events include bounded
+`refresh` counters/status. Retrieval completion does not mean the corpus is fresh.
+Keyword/name retrieval itself uses no model, but default refresh may embed changed
+text; add `--no-refresh` for model-free index-only operations.
+
+Cancellation owns the worker through exit and GPU memory release. Time budgets
+are soft during model loading or an in-flight batch. Model initialization adds
+latency: the measured complete synthetic smoke test took about 15.5 seconds.
+The worker starts alongside retrieval; updated files can cause a second retrieval
+pass. This is bounded incremental maintenance, without directory discovery or
+automatic ANN rebuilds on every search.
 
 The installed default database and ANN storage were verified on NVMe, not USB,
 on 2026-10-07. Installed consumers ignore inherited index-location overrides; only explicit

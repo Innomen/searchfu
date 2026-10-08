@@ -1,4 +1,4 @@
-"""Progressive indexed retrieval with opt-in bounded known-file read repair."""
+"""Progressive indexed retrieval with concurrent bounded known-file repair."""
 from __future__ import annotations
 from contextlib import closing, contextmanager
 from pathlib import Path
@@ -462,8 +462,8 @@ def vector_candidates(db,qv,k,where,params):
         return out
 
 
-def retrieve(db, query, *, refresh=False, **options):
-    """Beta read repair is opt-in. All reported snippets still come from SQLite.
+def retrieve(db, query, *, refresh=True, **options):
+    """Bounded repair overlaps retrieval. All snippets still come from SQLite.
 
     No directories are traversed. GPU admission/encoding cleanup is cooperative,
     so max_seconds is a soft deadline during an in-flight refresh operation.
@@ -492,22 +492,37 @@ def retrieve(db, query, *, refresh=False, **options):
                 if e['stage'] not in ('done','cancelled'):e.pop('results')
             previous=current
         return e
-    terminal=None
-    for e in _retrieve_snapshot(db,query,**inner):
-        if e['stage']=='done':terminal=e
-        else:yield decorate(e)
-    if terminal is None:return
-    if stopped():
-        yield decorate({**terminal,'stage':'cancelled','complete':False,'reason':'cancelled' if external and external() else 'budget_exhausted'});return
-    yield decorate({'stage':'refresh','complete':False,'source_tree_walked':False,'scopes':terminal.get('scopes',[])})
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    closing_worker=Event()
     selection={k:options.get(k) for k in ('kind','after','before','path','scopes','collections_file') if options.get(k) is not None}
+    pool=ThreadPoolExecutor(max_workers=1,thread_name_prefix='searchfu-refresh')
+    worker=None
+    def launch(paths):
+        return pool.submit(refresh_module.run,db,paths,selection,lambda:closing_worker.is_set() or stopped())
+    terminal=None
     try:
-        report=refresh_module.run(db,[r.get('evidence_path',r['path']) for r in terminal['results']],selection,stopped)
-    except Exception:
-        report={'checked':0,'updated':0,'skipped':0,'status':'refresh_failed'}
-    if stopped():
-        yield decorate({**terminal,'stage':'cancelled','complete':False,'reason':'cancelled' if external and external() else 'budget_exhausted'});return
-    if report['updated']:
-        if budget is not None:inner['max_seconds']=max(.001,budget-(time.monotonic()-started))
-        for e in _retrieve_snapshot(db,query,**inner):yield decorate(e)
-    else:yield decorate(terminal)
+        for e in _retrieve_snapshot(db,query,**inner):
+            # Launch at the first indexed evidence stage, before the vector scan.
+            # The worker samples catalog rows too, including files absent from hits.
+            if worker is None and 'results' in e and not stopped():
+                worker=launch([r.get('evidence_path',r['path']) for r in e['results']])
+            if e['stage']=='done':terminal=e
+            else:yield decorate(e)
+        if terminal is None:return
+        if worker is None and not stopped():
+            worker=launch([r.get('evidence_path',r['path']) for r in terminal['results']])
+        if worker is not None:
+            yield decorate({'stage':'refresh','complete':False,'source_tree_walked':False,'scopes':terminal.get('scopes',[])})
+            try:report=worker.result()
+            except Exception:report={'checked':0,'updated':0,'skipped':0,'status':'refresh_failed'}
+        if stopped():
+            yield decorate({**terminal,'stage':'cancelled','complete':False,'reason':'cancelled' if external and external() else 'budget_exhausted'});return
+        if report['updated']:
+            if budget is not None:inner['max_seconds']=max(.001,budget-(time.monotonic()-started))
+            for e in _retrieve_snapshot(db,query,**inner):yield decorate(e)
+        else:yield decorate(terminal)
+    finally:
+        # Closing a progressive generator owns cancellation through child exit.
+        closing_worker.set()
+        pool.shutdown(wait=True,cancel_futures=True)

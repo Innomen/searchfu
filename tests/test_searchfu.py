@@ -131,7 +131,7 @@ class SearchTests(unittest.TestCase):
         class Broken:
             def score(inner,pairs):raise OSError('synthetic failure')
         events=self.run_search(reranker=Broken())
-        self.assertEqual(events[-2]['reason'],'reranker_unavailable')
+        self.assertTrue(any(e.get('reason')=='reranker_unavailable' for e in events))
         self.assertTrue(events[-1]['results'])
     def test_missing_early_cache_falls_back(self):
         events=self.run_search(early=True,deep=True)
@@ -245,7 +245,7 @@ class SearchTests(unittest.TestCase):
     def test_shell_stream_front_door(self):
         output=subprocess.check_output(['bash',str(SOURCE/'searchfu.sh'),'stream','Topic1','--fts'],env={**os.environ,'SEARCHFU_DB':str(self.db)},text=True)
         events=[json.loads(line) for line in output.splitlines()]
-        self.assertEqual([e['stage'] for e in events],['keyword','done'])
+        self.assertEqual([e['stage'] for e in events],['keyword','refresh','done'])
     def test_background_poll_cursor_and_private_files(self):
         args=type('Args',(),dict(query='Topic1',top_k=12,kind='all',after=None,before=None,path=None,fts_only=True,require_all=False,expansions=[],deep=False,max_seconds=None,batch_rows=8192,emit_seconds=1))()
         result=jobs.start(self.db,args);jid=result['job_id']

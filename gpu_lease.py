@@ -1,13 +1,36 @@
-"""Optional Archon GPU ownership for explicit bulk indexing, never queries."""
+"""Shared bounded refresh and exclusive bulk-indexing GPU admission."""
 from contextlib import contextmanager
 import json,os,threading,urllib.request
 
+REFRESH_BATCH = 8
+REFRESH_ALLOCATOR_MIB = 256
 
-def call(route,body):
+
+def call(route,body,timeout=90):
     req=urllib.request.Request(os.environ.get('SEARCHFU_ARCHON','http://127.0.0.1:8790')+route,data=json.dumps(body).encode(),headers={'Content-Type':'application/json'})
     try:
-        with urllib.request.urlopen(req,timeout=90) as response:return json.load(response)
+        with urllib.request.urlopen(req,timeout=timeout) as response:return json.load(response)
     except Exception:return {'ok':False}
+
+
+@contextmanager
+def shared_lease():
+    """Bounded refresh keeps the brain resident; never exclusive fallback."""
+    response=call('/lease/shared/acquire',{'pid':os.getpid()},timeout=2)
+    token=response.get('token')
+    if not response.get('ok') or not token:raise RuntimeError('gpu_lease_unavailable')
+    try:
+        if (response.get('allocator_mib') != REFRESH_ALLOCATOR_MIB or
+                response.get('batch_size') != REFRESH_BATCH):
+            raise RuntimeError('gpu_lease_unavailable')
+        def check():
+            if not call('/lease/shared/check',{'token':token},timeout=2).get('ok'):
+                raise RuntimeError('gpu_lease_lost')
+        yield check
+    finally:
+        # Ownership remains pinned until process exit frees its CUDA context.
+        if not call('/lease/shared/release',{'token':token},timeout=2).get('ok'):
+            raise RuntimeError('gpu_lease_release_unconfirmed')
 
 
 @contextmanager

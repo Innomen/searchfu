@@ -1,0 +1,208 @@
+--- a/archon/policy.py
++++ b/archon/policy.py
+@@ -22,6 +22,8 @@
+ from __future__ import annotations
+ 
+ import json
++import os
++import signal
+ import re
+ import secrets
+ import subprocess
+@@ -39,9 +41,32 @@
+     """Kernel start tick distinguishes a live borrower from a reused PID."""
+     try:
+         raw = (Path("/proc") / str(int(pid)) / "stat").read_text(encoding="utf-8")
+-        return raw.rsplit(") ", 1)[1].split()[19]
++        fields = raw.rsplit(") ", 1)[1].split()
++        return None if fields[0] == 'Z' else fields[19]
+     except (OSError, ValueError, IndexError):
+         return None
++
++
++def _shared_owner_valid(pid):
++    """Only the installed refresh child may borrow; never signal arbitrary PIDs.
++
++    Inspect the interpreter/script prefix only, never query arguments or content.
++    """
++    try:
++        with open(Path('/proc', str(pid), 'cmdline'), 'rb') as f:
++            prefix = []
++            for _ in range(2):
++                value = bytearray()
++                while len(value) < 4096:
++                    b = f.read(1)
++                    if not b: return False
++                    if b == b'\0': break
++                    value.extend(b)
++                prefix.append(os.fsdecode(bytes(value)))
++        return (Path(prefix[0]).name.startswith('python') and
++                Path(prefix[1]) == Path.home()/'.local/share/searchfu-app/refresh.py')
++    except (OSError, ValueError):
++        return False
+ 
+ 
+ def _safe_thinker_status(path):
+@@ -98,6 +123,7 @@
+         self._override_holds = {}    # tenant name -> monotonic deadline for an emergency override hold
+         self._manual_unloads = self._read_manual_unloads()
+         self._external_lease = None  # ephemeral token + deadline; never written to logs/status
++        self._shared_lease = None  # bounded Searchfu companion; home stays resident
+         self._lock = threading.RLock()   # tick thread vs API threads
+         self._background = (background_controller or BackgroundController(cfg.background)
+                             if cfg.background.enabled else None)
+@@ -200,6 +226,7 @@
+             "manual_unloads": sorted(self._manual_unloads),
+             "vacate_guard": {"active": vacating},
+             "external_lease": {"active": self.external_lease_active()},
++            "shared_lease": {"active": self.shared_lease_active()},
+             "background": {"state": self._background_state,
+                            "exclusive_pending": bool(self._exclusive_admitting or
+                                self.queue.pending() or self.queue.running() or vacating or
+@@ -232,6 +259,81 @@
+     def inhibit_active(self):
+         f = self.cfg.scheduler.inhibit_file
+         return bool(f) and Path(f).exists()
++
++    def shared_lease_active(self):
++        lease = self._shared_lease
++        if not lease:
++            return False
++        if _process_starttime(lease['pid']) != lease['start']:
++            self._shared_lease = None
++            return False
++        # Even released/expired ownership blocks swaps until CUDA process exit.
++        return True
++
++    def acquire_shared_lease(self, pid):
++        """Small cooperative borrower; never unload or resize the resident brain."""
++        with self._lock:
++            try:
++                pid = int(pid)
++                start = _process_starttime(pid)
++                if (pid <= 1 or not start or Path('/proc', str(pid)).stat().st_uid != os.getuid()
++                        or not _shared_owner_valid(pid)):
++                    return {'ok': False, 'code': 'invalid_owner'}
++            except (OSError, ValueError, TypeError):
++                return {'ok': False, 'code': 'invalid_owner'}
++            if (self.inhibit_active() or self.vacate_guard_active() or
++                    self.external_lease_active() or self.shared_lease_active() or
++                    self.queue.running() or self.queue.pending() or self._exclusive_admitting):
++                return {'ok': False, 'code': 'scheduler_guard'}
++            occ = self.occupying_heavy()
++            if occ:
++                spec = self.cfg.tenants[occ]
++                if occ not in self.cfg.home_names or self.lc.status(spec) != 'ready' or self.lc.busy(spec):
++                    return {'ok': False, 'code': 'tenant_busy'}
++            free = free_vram_mib()
++            if free is None or free < 640:
++                return {'ok': False, 'code': 'low_vram'}
++            token = secrets.token_urlsafe(24)
++            self._shared_lease = {'token': token, 'pid': pid, 'start': start,
++                                  'deadline': time.monotonic() + 60, 'released': False}
++            return {'ok': True, 'token': token, 'allocator_mib': 256, 'batch_size': 8}
++
++    def check_shared_lease(self, token):
++        with self._lock:
++            lease = self._shared_lease
++            if (not self.shared_lease_active() or not lease or lease['released'] or
++                    not secrets.compare_digest(str(token), lease['token'])):
++                return {'ok': False}
++            free = free_vram_mib()
++            occ = self.occupying_heavy()
++            blocked = (time.monotonic() >= lease['deadline'] or self.inhibit_active() or
++                       self.vacate_guard_active() or self.queue.pending() or self.queue.running() or
++                       free is None or free < 192 or
++                       (occ and self.lc.busy(self.cfg.tenants[occ])))
++            return {'ok': not bool(blocked)}
++
++    def release_shared_lease(self, token):
++        with self._lock:
++            lease = self._shared_lease
++            if not lease or not secrets.compare_digest(str(token), lease['token']):
++                return {'ok': False}
++            lease['released'] = True
++            return {'ok': True}
++
++    def _quiesce_shared(self):
++        if not self.shared_lease_active():
++            return True
++        lease = self._shared_lease
++        try:
++            os.kill(lease['pid'], signal.SIGTERM)
++        except ProcessLookupError:
++            pass
++        except OSError:
++            return False
++        deadline = time.monotonic() + 5
++        while self.shared_lease_active() and time.monotonic() < deadline:
++            time.sleep(.05)
++        return not self.shared_lease_active()
+ 
+     def external_lease_active(self):
+         """Whether a bounded external GPU borrower currently owns the empty slot."""
+@@ -491,6 +593,8 @@
+             if override:
+                 self._hold_override(name)
+             return {"ok": True, "state": "ready", "already": True}
++        if not self._quiesce_shared():
++            return {"ok": False, "code": "shared_stop_failed"}
+         occ = self.occupying_heavy(exclude=name)
+         if occ:
+             ospec = self.cfg.tenants[occ]
+@@ -540,6 +644,8 @@
+         protected = name in self.cfg.home_names or bool(spec.keep_warm)
+         if protected and not (force or graceful):
+             return {"ok": True, "state": self.lc.status(spec), "kept": True}
++        if not self._quiesce_shared():
++            return {"ok": False, "code": "shared_stop_failed"}
+         if protected:
+             deadline = time.monotonic() + self.cfg.scheduler.swap_grace_secs
+             while self.lc.busy(spec) and time.monotonic() < deadline:
+@@ -567,6 +673,8 @@
+             return True
+ 
+     def _restore_home(self):
++        if self.shared_lease_active():
++            return {"ok": True, "state": "off", "deferred": "shared lease"}
+         if self._recovery_checkpoint_pending():
+             return {"ok": True, "state": "off", "deferred": "H3 recovery checkpoint"}
+         if self.external_lease_active():
+@@ -694,6 +802,13 @@
+             self._tick()
+ 
+     def _tick(self):
++        if self.shared_lease_active():
++            lease = self._shared_lease
++            if not self.check_shared_lease(lease['token']).get('ok'):
++                if not self._quiesce_shared():
++                    return
++            else:
++                return  # keep the resident home; no extra companion admissions
+         # A foreground process or inhibit also revokes the small companion.
+         # This reactive guard cannot precede a launch that bypasses Archon.
+         if self.vacate_guard_active() or self.inhibit_active():
+@@ -756,6 +871,8 @@
+         self._restore_background()
+ 
+     def _quiesce_background(self):
++        if not self._quiesce_shared():
++            return False
+         if not self._background:
+             return True
+         ok = self._background.stop()
+--- a/archon/daemon.py
++++ b/archon/daemon.py
+@@ -90,6 +90,12 @@
+                 self._send(200, archon.release(
+                     name, force=bool(b.get("force")), graceful=bool(b.get("graceful")),
+                     operator=bool(b.get("operator"))))
++            elif p == "/lease/shared/acquire":
++                self._send(200, archon.acquire_shared_lease(b.get('pid')))
++            elif p == "/lease/shared/check":
++                self._send(200, archon.check_shared_lease(b.get('token', '')))
++            elif p == "/lease/shared/release":
++                self._send(200, archon.release_shared_lease(b.get('token', '')))
+             elif p == "/lease/acquire":
+                 self._send(200, archon.acquire_external_lease(
+                     b.get("ttl_secs", 21600), priority=bool(b.get("priority"))))

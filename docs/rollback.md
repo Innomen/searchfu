@@ -1,6 +1,8 @@
 # Rolling back the search-refresh beta
 
-The beta remains opt-in: omit `--refresh` to immediately use index-only retrieval.
+Use `--no-refresh` to immediately use index-only retrieval. Python callers
+pass `refresh=False`. The earlier opt-in beta is tagged
+`search-refresh-beta-20261007`; reverting the default-refresh commit restores it.
 No beta schema migration is required. Each refreshed file is replaced in one
 transaction, and the previous retrieval code can read the updated chunks and
 vectors. Git stores source history, not the private database or its content.
@@ -30,3 +32,8 @@ the installation must continue ignoring backup index settings.
 No runtime database, query, result or collection configuration is part of this
 rollback bundle or either Git tag. Database content backups remain a separate,
 explicit local operation.
+
+For the default-refresh deployment, developer-only copies of the preceding EMS
+adapter and Archon source are saved in
+`~/.local/share/searchfu-rollback/default-refresh-20261007/`. Restore those only
+if no subsequent source changes would be overwritten; preserve unrelated edits.

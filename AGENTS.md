@@ -15,7 +15,7 @@ A local worker may have broader explicitly authorized access, but its response
 must pass an agreed aggregate-only schema locally before remote forwarding.
 
 Search must never crawl source files. Corpus traversal belongs only to explicit
-build/update indexing. The owner-authorized --refresh beta may inspect a bounded
+build/update indexing. The owner-authorized default refresh may inspect a bounded
 set of already cataloged plain-text files and bank changes without traversal. Preserve early results and cancel/poll contracts across
 CLI, Python, background workers and documentation. Test the public shell route.
 
@@ -44,3 +44,8 @@ authoritative installed path family. The installed launcher and EMS adapter
 ignore inherited DB/ANN/candidate/data overrides. No backup discovery/fallback.
 Generic developer interfaces retain explicit paths for synthetic tests and
 deliberate migrations. Test deployed launcher and adapter parity after edits.
+
+Default refresh policy (owner, 2026-10-07): bounded known-file repair overlaps
+retrieval. Use the shared Archon lease, batches <=8 and 256 MiB allocator cap;
+never unload the LLM or fall back to exclusive admission. --no-refresh opts out.
+Bulk indexing retains its priority lease. Test cancellation through worker exit.

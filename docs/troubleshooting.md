@@ -4,7 +4,7 @@
 
 Run `bash searchfu.sh status --agent`. This reports live chunk/file counts,
 index bytes and build health without paths or text. A missing DB is an error;
-search never creates it; the opt-in --refresh beta only repairs cataloged files. Set `SEARCHFU_DIR`
+search never creates it; default refresh only repairs cataloged files. Set `SEARCHFU_DIR`
 to the existing index before using an older installation. The new default is
 outside the source tree; no existing index was moved. Installed launcher/EMS
 consumers pin `~/.local/share/searchfu` and ignore index-location environment
@@ -80,3 +80,7 @@ is cooperative: model operations and native math currently executing must
 return before the next check. A dead worker is reported as failed; earlier
 events remain. Job results persist in the owner-only state directory until the
 user removes that job directory. They are unencrypted private data.
+
+A refresh status of `gpu_unavailable` means shared admission was refused or
+Archon lacks `/lease/shared/*` support. Retrieval still works. Install shared
+lease support locally; Searchfu never substitutes an exclusive lease.

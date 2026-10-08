@@ -77,6 +77,42 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(events[-1]['stage'],'done');self.assertEqual(events[-1]['results'],[])
         self.assertTrue(any(e.get('changes',{}).get('removed') for e in events))
         self.assertEqual(sum(e['stage']=='done' for e in events),1)
+    def test_default_overlaps_retrieval_and_close_cancels_worker(self):
+        import threading
+        entered=threading.Event();exited=threading.Event()
+        def run(db,paths,opts,stopped):
+            entered.set()
+            while not stopped():exited.wait(.01)
+            exited.set()
+            return {'checked':0,'updated':0,'skipped':0,'status':'cancelled'}
+        with patch.object(refresh,'run',side_effect=run):
+            generator=retrieval.retrieve(self.db,'amber',fts_only=True)
+            self.assertEqual(next(generator)['stage'],'keyword')
+            self.assertTrue(entered.wait(2))
+            generator.close()
+            self.assertTrue(exited.is_set())
+    def test_opt_out_never_launches_refresh(self):
+        self.path.write_text(self.new)
+        with patch.object(refresh,'run',side_effect=AssertionError('must not run')):
+            events=list(retrieval.retrieve(self.db,'amber',fts_only=True,refresh=False))
+        self.assertEqual(events[-1]['stage'],'done')
+        self.assertEqual(self.contents(),[(self.old,)])
+    def test_shared_contract_mismatch_releases_without_exclusive_fallback(self):
+        import gpu_lease
+        calls=[]
+        def call(route,body,**kw):
+            calls.append(route)
+            return {'ok':True,'token':'synthetic','allocator_mib':512,'batch_size':8}
+        with patch.object(gpu_lease,'call',side_effect=call):
+            with self.assertRaisesRegex(RuntimeError,'gpu_lease_unavailable'):
+                with gpu_lease.shared_lease():self.fail('incompatible admission')
+        self.assertEqual(calls,['/lease/shared/acquire','/lease/shared/release'])
+    def test_encoding_is_split_into_eight_chunk_batches(self):
+        self.path.write_text(self.new);sizes=[]
+        def encode(texts):sizes.append(len(texts));return self.encode(texts)
+        with patch.object(search,'chunks',return_value=['Synthetic bounded chunk. '*4]*19):
+            self.assertEqual(self.repair(encoder=encode)['updated'],1)
+        self.assertEqual(sizes,[8,8,3])
     def test_existing_schema_needs_no_beta_migration(self):
         def schema():
             c=search.connect(self.db,readonly=True)
@@ -111,7 +147,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(terminal['refresh']['status'],'refresh_failed')
         self.assertEqual(len(terminal['results']),1)
 
-    def test_public_changed_file_uses_priority_lease_and_cuda(self):
+    def test_public_default_changed_file_uses_shared_lease_and_cuda(self):
         from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
         import threading
         calls=[]
@@ -120,33 +156,43 @@ class RepairTests(unittest.TestCase):
             def do_POST(self):
                 body=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 calls.append((self.path,body))
-                result={'ok':True,'token':'synthetic-token'}
+                result={'ok':True,'token':'synthetic-token','allocator_mib':256,'batch_size':8}
                 self.send_response(200);self.end_headers();self.wfile.write(json.dumps(result).encode())
         server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         fake=self.root/'fake';fake.mkdir()
         (fake/'sentence_transformers.py').write_text("import numpy as np\nclass SentenceTransformer:\n def __init__(self,*args,device=None,**kw):\n  assert device=='cuda'\n def encode(self,texts,**kw):return np.ones((len(texts),384),dtype=np.float32)\n")
+        (fake/'torch.py').write_text("class Props:total_memory=16*1024**3\nclass Cuda:\n def get_device_properties(self,i):return Props()\n def set_per_process_memory_fraction(self,f):assert 0<f<0.02\ncuda=Cuda()\n")
         self.path.write_text(self.new)
         env={**os.environ,'SEARCHFU_DB':str(self.db),'SEARCHFU_ANN_DIR':str(self.root/'index/ann'),
              'SEARCHFU_PY':os.sys.executable,'SEARCHFU_COLLECTIONS':str(self.config),
              'PYTHONPATH':str(fake),'SEARCHFU_ARCHON':f'http://127.0.0.1:{server.server_port}'}
         try:
-            result=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),'stream','violet','--fts','--refresh'],env=env,capture_output=True,text=True,check=True)
+            result=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),'stream','violet','--fts'],env=env,capture_output=True,text=True,check=True)
             events=[json.loads(line) for line in result.stdout.splitlines()]
             self.assertEqual(events[-1]['refresh']['updated'],1)
             self.assertEqual(len(events[-1]['results']),1)
-            self.assertEqual(calls[0],('/lease/acquire',{'ttl_secs':3600,'priority':True}))
-            self.assertEqual(calls[-1][0],'/lease/release')
+            self.assertEqual(calls[0][0],'/lease/shared/acquire')
+            self.assertEqual(set(calls[0][1]),{'pid'})
+            self.assertEqual(calls[-1][0],'/lease/shared/release')
         finally:server.shutdown();server.server_close();thread.join()
 
     def test_shell_public_refresh_no_change(self):
         env={**os.environ,'SEARCHFU_DB':str(self.db),'SEARCHFU_ANN_DIR':str(self.root/'index/ann'),'SEARCHFU_PY':os.sys.executable,'SEARCHFU_COLLECTIONS':str(self.config)}
-        result=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),'stream','amber','--fts','--refresh'],env=env,capture_output=True,text=True,check=True)
+        result=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),'stream','amber','--fts'],env=env,capture_output=True,text=True,check=True)
         events=[json.loads(s) for s in result.stdout.splitlines()]
         self.assertEqual(events[-1]['refresh']['checked'],1)
         self.assertEqual(events[-1]['refresh']['updated'],0)
         for command in ['search','stream','start']:
             helptext=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),command,'--help'],env=env,capture_output=True,text=True,check=True).stdout
             self.assertIn('--refresh',helptext)
+            self.assertIn('--no-refresh',helptext)
+    def test_public_opt_out_preserves_old_index(self):
+        self.path.write_text(self.new)
+        env={**os.environ,'SEARCHFU_DB':str(self.db),'SEARCHFU_ANN_DIR':str(self.root/'index/ann'),'SEARCHFU_PY':os.sys.executable,'SEARCHFU_COLLECTIONS':str(self.config)}
+        result=subprocess.run(['bash',str(Path(search.__file__).parent/'searchfu.sh'),'stream','amber','--fts','--no-refresh'],env=env,capture_output=True,text=True,check=True)
+        events=[json.loads(line) for line in result.stdout.splitlines()]
+        self.assertEqual([e['stage'] for e in events],['keyword','done'])
+        self.assertEqual(self.contents(),[(self.old,)])
 
 if __name__=='__main__':unittest.main()

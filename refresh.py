@@ -1,4 +1,4 @@
-"""Bounded, opt-in read repair of cataloged plain text; no directory discovery."""
+"""Bounded search-driven read repair of cataloged plain text; no directory discovery."""
 from pathlib import Path
 from contextlib import closing, nullcontext
 import contextlib, io
@@ -33,7 +33,7 @@ def repair(request, *, encoder=None, admitted=None, cancelled=lambda:False, samp
     from retrieval import filters, _extra
     from collections_config import scope_sql, load, config_path
     from storage import require_capacity, batch_bytes
-    from gpu_lease import lease
+    from gpu_lease import shared_lease, REFRESH_BATCH, REFRESH_ALLOCATOR_MIB
     report={'checked':0,'updated':0,'skipped':0,'status':'complete'}
     with open(str(request['db'])+'.build.lock','a') as lock:
         try: fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
@@ -80,12 +80,19 @@ def repair(request, *, encoder=None, admitted=None, cancelled=lambda:False, samp
             if not pending:return report
             try:
                 require_capacity(Path(request["db"]).parent,sum(batch_bytes(p[4]) for p in pending),phase="search_refresh")
-                with ((admitted or lease)() if any(p[4] for p in pending) else nullcontext(lambda:None)) as lease_check:
+                with ((admitted or shared_lease)() if any(p[4] for p in pending) else nullcontext(lambda:None)) as lease_check:
+                    if encoder is None and any(p[4] for p in pending):
+                        import torch
+                        torch.cuda.set_per_process_memory_fraction(REFRESH_ALLOCATOR_MIB*1024**2/torch.cuda.get_device_properties(0).total_memory)
                     encode=encoder or Models(False).text_vecs
                     for fid,path,raw,st,texts in pending:
                         if cancelled():return {**report,'status':'cancelled'}
-                        lease_check();vectors=encode(texts) if texts else []
                         import numpy as np
+                        vectors=[]
+                        for offset in range(0,len(texts),REFRESH_BATCH):
+                            if cancelled():return {**report,'status':'cancelled'}
+                            lease_check()
+                            vectors.extend(encode(texts[offset:offset+REFRESH_BATCH]))
                         if texts and (np.asarray(vectors).shape!=(len(texts),384) or not np.isfinite(vectors).all()):raise ValueError('invalid_vectors')
                         lease_check()
                         if cancelled():return {**report,'status':'cancelled'}
@@ -115,7 +122,8 @@ def repair(request, *, encoder=None, admitted=None, cancelled=lambda:False, samp
     return report
 
 def run(db,paths,options,cancelled):
-    env=os.environ.copy();env.update(SEARCHFU_CUDA='1',CUDA_VISIBLE_DEVICES='0',HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1')
+    from gpu_lease import REFRESH_BATCH
+    env=os.environ.copy();env.update(SEARCHFU_CUDA='1',SEARCHFU_ENCODE_BATCH=str(REFRESH_BATCH),CUDA_VISIBLE_DEVICES='0',HF_HUB_OFFLINE='1',TRANSFORMERS_OFFLINE='1')
     request=json.dumps({'db':str(db),'paths':paths,'options':options})
     process=subprocess.Popen([sys.executable,str(Path(__file__).absolute())],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
     sent=False
