@@ -4,7 +4,7 @@ from contextlib import closing
 import json, os, sqlite3
 
 COMPONENTS={'gui','search_worker','comparison','catalog','settings'}
-CODES={'operation_failed','worker_failed','invalid_configuration','missing_target','same_target','shadow_failed','shadow_timeout','database_failed','permission_denied','io_failed','cancelled'}
+CODES={'operation_failed','worker_failed','invalid_configuration','missing_target','same_target','legacy_scope_unsupported','shadow_failed','shadow_timeout','database_failed','permission_denied','io_failed','cancelled'}
 CLASSES={'none','sqlite','permission','os','value','other'}
 
 def log_path():

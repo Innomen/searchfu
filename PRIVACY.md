@@ -62,3 +62,12 @@ errors use a sanitized excepthook; search subprocess stderr remains suppressed.
 `searchfu errors --agent` exports only validated category names and counts.
 Unexpected stored values are discarded. Synthetic metrics overrides isolate
 diagnostic storage too; tests must not contribute real-use error counts.
+
+The GUI control socket is same-user/local-only, mode 0600. Commands may carry
+private search text locally, but its closed replies never carry private fields.
+`gui-control status` is a permitted aggregate health surface. Search and reload
+are owner-controlled operations: remote agents need an authorized query before
+submitting one, and must consume only the sanitized reply/status. Never inspect
+live result widgets. Synthetic socket/config/metrics overrides keep control
+gates isolated from real windows and usage. Active comparison status probes only
+the supervisor lock, not process arguments or private job/session stores.

@@ -381,3 +381,32 @@ suppress raw tracebacks. Synthetic fixtures validate hostile exception objects,
 unknown stored data rejection, permissions, nonmutating reads and public shell
 export. User-selected USB locations persist only in private comparison settings;
 never bake personal mount paths into source or developer documentation.
+
+AI-first desktop control contract (2026-10-10): gui_control.py owns an
+authenticated-by-filesystem same-user Unix socket and singleton lock. Qt handles
+commands on its UI thread. Allowlist commands/arguments; bounded requests and
+closed sanitized replies. Status/search/show/cancel/reload have public shell
+routes; search text is stdin-only. Reload closes owned workers before exec and
+server reacquisition. No result serialization through this control boundary.
+Comparison progress is an aggregate supervisor-lock probe; dashboard renders
+all mode buckets and distinguishes readiness from active ownership. Primary
+completion/cancellation/budget exhaustion receives independent numeric timing
+even if no pair completes. Historical generic cancellations cannot be reclassified.
+Synthetic public-route gates cover actual GUI-controlled search, payload-free
+status, singleton permissions, invalid commands, primary timeouts and active
+lock reporting. The first upgrade from a GUI predating this endpoint requires
+an explicit restart; subsequent upgrades use the controlled reload route.
+
+Legacy USB reader contract: missing optional file metadata and index-state tables
+are supplied by TEMP views on a mode=ro connection, never a persisted migration.
+Unknown filesystem identity stays NULL and cannot pass a pinned-device filter.
+Shadow reads never create a matrix lock; absent legacy locks select the indexed
+vector path. FTS uses the native rank ordering with explicit bm25 mapping so
+joined matches do not require a temporary sorting tree before initial results.
+Synthetic gates compare ranking scores and assert unchanged legacy database
+bytes. Initial-result timing requires a nonempty result event; zero denotes no
+observed result, not elapsed time to an empty cancellation.
+Comparison admission checks legacy filesystem metadata before launching a pinned
+scope. Unsupported scopes produce a fixed outcome and visible explanation,
+never a zero-hit "USB faster" measurement. Do not silently broaden scope or
+rebuild the read-only USB copy; an explicit unscoped search remains supported.

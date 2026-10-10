@@ -14,7 +14,7 @@ class ComparisonTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         self.db,self.ann,_=fixture(self.root/'nvme',rows=20,files=5)
         self.usb,self.uann,_=fixture(self.root/'usb',rows=20,files=5)
-        self.env=patch.dict(os.environ,{'SEARCHFU_DB':str(self.db),'SEARCHFU_ANN_DIR':str(self.ann),'SEARCHFU_COMPARISON_CONFIG':str(self.root/'config/comparison.json'),'SEARCHFU_METRICS_DB':str(self.root/'state/metrics.sqlite3'),'SEARCHFU_COLLECTIONS':str(self.root/'config/collections.json'),'QT_QPA_PLATFORM':'offscreen'})
+        self.env=patch.dict(os.environ,{'SEARCHFU_DB':str(self.db),'SEARCHFU_ANN_DIR':str(self.ann),'SEARCHFU_COMPARISON_CONFIG':str(self.root/'config/comparison.json'),'SEARCHFU_METRICS_DB':str(self.root/'state/metrics.sqlite3'),'SEARCHFU_COLLECTIONS':str(self.root/'config/collections.json'),'SEARCHFU_GUI_SOCKET':str(self.root/'state/gui.sock'),'QT_QPA_PLATFORM':'offscreen'})
         self.env.start();comparison.save({'enabled':True,'usb_db':str(self.usb),'usb_ann':str(self.uann),'usb_candidates':'','timeout_seconds':10})
     def tearDown(self):self.env.stop();self.tmp.cleanup()
     def wait_metric(self,name):
@@ -41,6 +41,14 @@ class ComparisonTests(unittest.TestCase):
         with patch('os.walk',side_effect=AssertionError('no traversal')):
             self.assertEqual(list(retrieve(self.db,'synthetic',refresh=False,fts_only=True))[-1]['stage'],'done')
         self.assertFalse(Path(cfg['usb_db']).exists());self.assertEqual(comparison.report()['modes']['keyword']['missing_target'],1)
+    def test_legacy_pinned_scope_is_not_a_zero_hit_speed_comparison(self):
+        with sqlite3.connect(self.usb) as c:c.execute('ALTER TABLE files DROP COLUMN source_device')
+        scopes={'collections':{'synthetic':{'root':'/synthetic','one_filesystem':True,'device':123}}}
+        with patch('collections_config.load',return_value=scopes),patch('comparison.subprocess.Popen',side_effect=AssertionError('must reject before launching')):
+            self.assertIsNone(comparison.launch(self.db,'synthetic',{'fts_only':True,'scopes':['synthetic']}))
+            self.assertTrue(comparison.scope_supported(self.usb,{'scopes':[]}))
+        v=comparison.report()['modes']['keyword']
+        self.assertEqual(v['legacy_scope_unsupported'],1);self.assertNotIn('paired',v)
     def test_disabled_and_explicit_optout(self):
         cfg=comparison.load();cfg['enabled']=False;comparison.save(cfg)
         list(retrieve(self.db,'synthetic',refresh=False,fts_only=True))
@@ -55,6 +63,14 @@ class ComparisonTests(unittest.TestCase):
         with patch('comparison.launch',return_value='worker'),patch('comparison.finish') as finish,patch('retrieval._retrieve_with_refresh',side_effect=RuntimeError('synthetic failure')):
             with self.assertRaises(RuntimeError):list(retrieve(self.db,'synthetic',refresh=False,fts_only=True))
             self.assertEqual(finish.call_args.args[:2],('worker','primary_failed'))
+    def test_empty_progress_does_not_count_as_first_result(self):
+        events=[{'stage':'keyword','elapsed_seconds':1,'results':[]},
+                {'stage':'cancelled','reason':'budget_exhausted','elapsed_seconds':3,'results':[]}]
+        with patch('comparison.launch',return_value=None),patch('retrieval._retrieve_with_refresh',return_value=iter(events)):
+            list(retrieve(self.db,'synthetic',refresh=False,fts_only=True))
+        v=comparison.report()['modes']['keyword']
+        self.assertEqual(v['primary_timeouts'],1)
+        self.assertEqual(v['primary_first_seconds_sum'],0)
     def test_fixed_export_rejects_unexpected_stored_fields(self):
         comparison.record('keyword','missing_target')
         with sqlite3.connect(comparison.metrics_path()) as c:

@@ -8,8 +8,11 @@ legacy index/, custom SEARCHFU_DB/SEARCHFU_ANN_DIR/SEARCHFU_JOBS_DIR locations,
 ~/.local/share/searchfu and ~/.local/state/searchfu. Do not enumerate these
 paths. Ignore files do not grant permission or provide a security sandbox.
 
-Use only `status --agent` and the closed `metrics --agent` surface (including
-`--footprint`) for real-index diagnostics. Run tests and benchmarks
+Use only `status --agent`, the closed `metrics --agent` surface (including
+`--footprint`), `errors --agent`, and `gui-control status` for real-index
+diagnostics. The owner-authorized GUI controller can reload the app and submit
+an explicitly authorized query; consume only its sanitized replies, never live
+result widgets. Search text travels locally via stdin, not argv. Run tests and benchmarks
 only with their generated fixtures. Inspect code to diagnose runtime errors;
 request narrowly sanitized local checks when private access is needed.
 A local worker may have broader explicitly authorized access, but its response

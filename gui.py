@@ -145,7 +145,7 @@ def main(db=None):
             # Closed console vocabulary: never echo scope names, errors, queries or paths.
             stages={'opening','keyword_scan','filename_scan','keyword','encoding','candidate','candidates','semantic','quantized','full_precision','refine','refined','rerank','reranked','reranked_early','refresh','done','cancelled','deep'}
             self.phase=e['stage'] if e.get('stage') in stages else 'working'
-            if self.phase in ('done','cancelled'):self.outcome=self.phase
+            if self.phase in ('done','cancelled'):self.outcome='primary_timeout' if e.get('reason')=='budget_exhausted' else self.phase
             self.console.append(f'{time.monotonic()-self.started:.1f}s • {self.phase.replace("_"," ")} • {len(e.get("results",self.results))} results')
             self.progress.setText(f"{e['stage'].capitalize()} • {e.get('elapsed_seconds',0):.2f}s • {len(e.get('results',self.results))} results"+(f" • {e.get('coverage','')}" if e.get('coverage') else ''))
             if 'results' not in e:return
@@ -153,10 +153,12 @@ def main(db=None):
             for i,r in enumerate(self.results):
                 for j,value in enumerate((r['path'],r.get('match',''),str(r.get('score','')))):self.table.setItem(i,j,QTableWidgetItem(value))
         def search_finished(self):
+            self.finished_elapsed=max(0,time.monotonic()-self.started)
             task=self.task;self.task=None;self.go.setEnabled(True);self.cancel_button.setEnabled(False)
             if task:task.deleteLater()
             if self.outcome is None:self.outcome='cancelled' if task and task.stop.is_set() else 'failed'
-            self.progress.setText(f'{self.outcome.capitalize()} • {time.monotonic()-self.started:.1f}s elapsed • {len(self.results)} results')
+            label='Time limit reached' if self.outcome=='primary_timeout' else self.outcome.capitalize()
+            self.progress.setText(f'{label} • {self.finished_elapsed:.1f}s elapsed • {len(self.results)} results')
             self.console.append('Worker exited • '+self.outcome)
             self.update_metrics()
         def cancel_search(self):
@@ -191,7 +193,10 @@ def main(db=None):
             task.finished.connect(finished);task.start()
         def update_metrics(self):
             data=comparison.report();lines=[]
-            for mode,v in data['modes'].items():
+            for mode in comparison.MODES:
+                v=data['modes'].get(mode,{})
+                attempts=v.get('primary_attempts',0)
+                if attempts:lines.append(f"{mode.capitalize()} NVMe: {int(v.get('primary_completed',0))}/{int(attempts)} searches completed • mean elapsed {v.get('primary_seconds_sum',0)/attempts:.2f}s • cancellations {int(v.get('primary_cancelled',0))} • time limits {int(v.get('primary_timeouts',0))} • failures {int(v.get('primary_failures',0))}")
                 n=v.get('paired',0);lines.append(f'{mode.capitalize()} — {int(n)} completed comparisons')
                 if n:
                     for drive in ('nvme','usb'):
@@ -206,7 +211,8 @@ def main(db=None):
             if not cfg['enabled']:status='Comparison disabled. Enable cloning in Settings.'
             elif not cfg['usb_db']:status=f'Comparison not running: USB database not configured. {int(skipped)} searches skipped. Choose the existing USB database in Settings and save.'
             elif not Path(cfg['usb_db']).is_file():status='Comparison not running: configured USB database is unavailable. Check that the drive is mounted and the file exists.'
-            else:status=f'Comparison enabled • {int(paired)} completed pairs. New searches launch a read-only USB shadow; timings appear after both searches finish.'
+            else:status=f"{'Comparison running — waiting for both searches to finish' if data.get('activity',{}).get('active') else 'Comparison ready'} • {int(paired)} completed pairs. NVMe timing is recorded even when pairing fails."
+            if any(v.get('legacy_scope_unsupported') for v in data['modes'].values()):status+=' Older USB index cannot apply filesystem-pinned folder filters. Use Entire index on both drives, or rebuild the USB index with current metadata.'
             self.comparison_status.setText(status);self.update_errors()
             self.metrics.setPlainText('\n'.join(lines) or 'No completed comparisons yet. Search normally; this view updates automatically.')
         def measure_footprint(self):
@@ -260,7 +266,11 @@ def main(db=None):
                 for task in self.local_tasks:task.requestInterruption()
                 event.ignore();QTimer.singleShot(100,self.close)
             else:event.accept()
-    app=QApplication.instance() or QApplication(sys.argv);window=Window();window.show()
+    app=QApplication.instance() or QApplication(sys.argv);window=Window()
+    import gui_control
+    if not gui_control.install(window,app):
+        gui_control.request({'action':'show'});return 0
+    window.show()
     if '--smoke-test' in sys.argv:
         # Tests supply synthetic DB/config; no real windows or content inspected.
         window.query.setText('synthetic');window.mode.setCurrentText('Keywords');window.refresh.setChecked(False);window.start_search()
@@ -281,7 +291,10 @@ def main(db=None):
                 return
             window.update_metrics();app.exit(0)
         timer=QTimer();timer.timeout.connect(verify);timer.start(50);QTimer.singleShot(20000,lambda:app.exit(2))
-    return app.exec()
+    result=app.exec()
+    window.control_server.close();os.close(window.control_lock)
+    if window.reload_requested:os.execv(sys.executable,[sys.executable,str(Path(__file__).resolve())])
+    return result
 
 if __name__=='__main__':
     try:

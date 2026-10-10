@@ -38,6 +38,14 @@ def profile_db(profile: str) -> Path:
 def connect(db: Path, readonly=False) -> sqlite3.Connection:
     if readonly:
         c = sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)
+        # Read-only legacy compatibility lives only in TEMP views. The main
+        # database remains mode=ro; search must never migrate a USB source.
+        columns={r[1] for r in c.execute('PRAGMA main.table_info(files)')}
+        additions=[name for name in ('content_hash','source_device','extractor') if name not in columns]
+        if additions:
+            c.execute('CREATE TEMP VIEW files AS SELECT legacy.*,'+','.join('NULL AS '+name for name in additions)+' FROM main.files AS legacy')
+        if not c.execute("SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='index_state'").fetchone():
+            c.execute("CREATE TEMP VIEW index_state AS SELECT '' AS key,0 AS value WHERE 0")
         c.execute("PRAGMA query_only=ON")
         return c
     db.parent.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,7 @@ from contextlib import closing
 
 BUCKETS=(.05,.1,.25,.5,1,2,5,10,30,60,120,300)
 MODES=('names','keyword','hybrid','deep')
-OUTCOMES=('paired','missing_target','disabled','busy','unsupported','shadow_failed','shadow_timeout','primary_failed','cancelled','same_target')
+OUTCOMES=('paired','missing_target','disabled','busy','unsupported','legacy_scope_unsupported','shadow_failed','shadow_timeout','primary_failed','primary_timeout','cancelled','same_target')
 
 def outside_source(path):
     p=Path(path)
@@ -79,16 +79,41 @@ def record(mode,outcome,primary=None,shadow=None):
         for key,value in values.items():
             c.execute('INSERT INTO counters VALUES(?,?,?) ON CONFLICT(mode,metric) DO UPDATE SET value=value+excluded.value',(mode,key,value))
 
+PRIMARY_KEYS={'primary_attempts','primary_completed','primary_cancelled','primary_timeouts','primary_failures','primary_seconds_sum','primary_first_seconds_sum','primary_count_sum'}
+def record_primary(m,outcome,s):
+    if m not in MODES or outcome not in ('paired','cancelled','primary_timeout','primary_failed'):raise ValueError('invalid_primary_metric')
+    # Independent attempts must not share counters with pairing outcomes.
+    counter={'paired':'primary_completed','cancelled':'primary_cancelled','primary_timeout':'primary_timeouts','primary_failed':'primary_failures'}[outcome]
+    values={'primary_attempts':1,counter:1}
+    for key,field in [('primary_seconds_sum','seconds'),('primary_first_seconds_sum','first_seconds'),('primary_count_sum','count')]:
+        n=s.get(field,0)
+        if type(n) not in (int,float) or not math.isfinite(n) or not 0<=n<=1e9:raise ValueError('invalid_primary_metric')
+        values[key]=n
+    with closing(_connection()) as c,c:
+        for key,value in values.items():c.execute('INSERT INTO counters VALUES(?,?,?) ON CONFLICT(mode,metric) DO UPDATE SET value=value+excluded.value',(m,key,value))
+
+def activity():
+    """Probe only the developer-owned supervisor lock; never inspect job stores."""
+    import fcntl
+    p=metrics_path().parent/'comparison.lock'
+    if not p.exists():return {'active':False}
+    try:
+        with p.open('r') as f:
+            try:fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            except BlockingIOError:return {'active':True}
+        return {'active':False}
+    except OSError:return {'active':False,'unavailable':True}
+
 def report():
-    if not metrics_path().exists():return {'version':1,'modes':{},'measurement':'concurrent_read_only_shadow'}
+    if not metrics_path().exists():return {'version':1,'modes':{},'measurement':'concurrent_read_only_shadow','activity':activity()}
     with closing(_connection()) as c:
         out={}
         for mode,key,value in c.execute('SELECT mode,metric,value FROM counters'):
             # Deliberately closed export vocabulary: unexpected stored data stays local.
-            allowed=set(OUTCOMES)|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
+            allowed=set(OUTCOMES)|PRIMARY_KEYS|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
             if mode not in MODES or key not in allowed or type(value) not in (int,float) or not math.isfinite(value) or value<0:continue
             out.setdefault(mode,{})[key]=value
-    return {'version':1,'modes':out,'latency_bucket_upper_seconds':list(BUCKETS),'measurement':'concurrent_read_only_shadow'}
+    return {'version':1,'modes':out,'latency_bucket_upper_seconds':list(BUCKETS),'measurement':'concurrent_read_only_shadow','activity':activity()}
 
 def reset():
     with closing(_connection()) as c,c:c.execute('DELETE FROM counters')
@@ -118,6 +143,16 @@ def mode(options):
 def summary(event,first,refresh=False):
     return {'seconds':event.get('elapsed_seconds',0),'first_seconds':first or 0,'count':len(event.get('results',[])), 'ids':[r['result_id'] for r in event.get('results',[])], 'refresh':refresh,'index_seconds':event.get('timings',{}).get('index_seconds',event.get('elapsed_seconds',0)),'encoding_seconds':event.get('timings',{}).get('encoding_seconds',0)}
 
+def scope_supported(db,options):
+    """Schema-only admission: never interpret a missing device as zero hits."""
+    names=options.get('scopes') or []
+    if not names:return True
+    import collections_config
+    scopes=collections_config.load()['collections']
+    if not any(scopes.get(name,{}).get('one_filesystem') for name in names):return True
+    with closing(sqlite3.connect(Path(db).resolve().as_uri()+'?mode=ro',uri=True)) as c:
+        return any(row[1]=='source_device' for row in c.execute('PRAGMA main.table_info(files)'))
+
 def launch(db,query,options):
     m=mode(options)
     try:cfg=load()
@@ -126,6 +161,8 @@ def launch(db,query,options):
     if not cfg['usb_db'] or not Path(cfg['usb_db']).is_file():diagnostics.record('comparison','missing_target');record(m,'missing_target');return None
     if Path(cfg['usb_db']).resolve()==Path(db).resolve():diagnostics.record('comparison','same_target');record(m,'same_target');return None
     if options.get('reranker') is not None:record(m,'unsupported');return None
+    if not scope_supported(cfg['usb_db'],options):
+        diagnostics.record('comparison','legacy_scope_unsupported');record(m,'legacy_scope_unsupported');return None
     safe={k:v for k,v in options.items() if k not in ('models','reranker','cancelled')}
     payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m})+'\n'
     env={**os.environ,'SEARCHFU_SHADOW':'1','SEARCHFU_CUDA':'0','CUDA_VISIBLE_DEVICES':''}
@@ -179,7 +216,7 @@ def shadow():
     from retrieval import retrieve
     first=None;last=None
     for e in retrieve(cfg['usb_db'],request['query'],comparison=False,**options):
-        if first is None and 'results' in e:first=e['elapsed_seconds']
+        if first is None and e.get('results'):first=e['elapsed_seconds']
         last=e
     print(json.dumps({'outcome':'paired','summary':summary(last,first)} if last and last['stage']=='done' else {'outcome':'shadow_timeout'}))
 

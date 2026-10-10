@@ -41,10 +41,10 @@ def _lexical(c, query, limit, where, params, require_all):
     if not terms: return {}
     operator = " AND " if require_all else " OR "
     expression = operator.join('"' + t.replace('"', '""') + '"' for t in terms)
-    sql = ("SELECT c.id,f.path,f.kind,f.mtime,f.mime,bm25(chunks_fts) "
+    sql = ("SELECT c.id,f.path,f.kind,f.mtime,f.mime,chunks_fts.rank "
            "FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.rowid "
            "JOIN files f ON f.id=c.file_id WHERE chunks_fts MATCH ?" + _extra(where) +
-           " ORDER BY bm25(chunks_fts) LIMIT ?")
+           " AND chunks_fts.rank MATCH 'bm25()' ORDER BY chunks_fts.rank LIMIT ?")
     best = {}
     # Fetch in pages: long files must not consume every candidate slot.
     # The bound applies to files; OFFSET is only over the FTS index.
@@ -130,7 +130,7 @@ def _matrix_lock(ann, check):
     import fcntl
     # New indexes always contain this file. Legacy indexes can create only an
     # advisory lock, never mutate indexed content while searching.
-    with open(ann / ".build.lock", "a") as lock:
+    with open(ann / ".build.lock", "r" if os.environ.get("SEARCHFU_SHADOW") else "a") as lock:
         while True:
             check()
             try:
@@ -392,7 +392,7 @@ def _retrieve_snapshot(db, query, *, top_k=12, kind="all", after=None, before=No
             stage="semantic"
             matrix_used=False
             scoped_vectors=False
-            if (ann/"ann.meta.json").is_file():
+            if (ann/"ann.meta.json").is_file() and (not os.environ.get("SEARCHFU_SHADOW") or (ann/".build.lock").is_file()):
                 with _matrix_lock(ann,check):
                     # Full rebuild may have invalidated metadata while we waited.
                     if (ann/"ann.meta.json").is_file():
@@ -535,7 +535,7 @@ def _retrieve_with_refresh(db, query, *, refresh=True, **options):
 def retrieve(db, query, *, refresh=True, comparison=True, **options):
     """Primary results retain their contract; optional shadow owns separate caches."""
     import comparison as tracking
-    worker=None;first=None;terminal=None;outcome='cancelled'
+    worker=None;first=None;terminal=None;outcome='cancelled';started=time.monotonic();track_primary=False;recorded=False
     # Synthetic/migration callers remain isolated. Installed CLI and EMS both pin
     # SEARCHFU_DB to the primary; callers can explicitly disable comparisons.
     from runtime_paths import pinned_paths
@@ -546,17 +546,25 @@ def retrieve(db, query, *, refresh=True, comparison=True, **options):
               (Path(db).resolve()==Path(primary).resolve() or
                (synthetic_config and Path(db).resolve()==Path(explicit_primary).resolve())))
     if eligible:
-        try:worker=tracking.launch(db,query,{**options,'refresh':refresh})
-        except Exception:pass
+        try:
+            track_primary=tracking.load()['enabled'];worker=tracking.launch(db,query,{**options,'refresh':refresh})
+        except Exception as exc:
+            __import__('diagnostics').record('comparison','operation_failed',exc)
     try:
         for e in _retrieve_with_refresh(db,query,refresh=refresh,**options):
-            if first is None and ('results' in e or 'changes' in e):first=e['elapsed_seconds']
+            if first is None and (e.get('results') or e.get('changes')):first=e['elapsed_seconds']
             if e['stage'] in ('done','cancelled'):
-                terminal=e;outcome='paired' if e['stage']=='done' else 'cancelled'
+                terminal=e;outcome='paired' if e['stage']=='done' else 'primary_timeout' if e.get('reason')=='budget_exhausted' else 'cancelled'
+                if track_primary:
+                    try:tracking.record_primary(tracking.mode(options),outcome,tracking.summary(e,first,refresh));recorded=True
+                    except Exception as exc:__import__('diagnostics').record('comparison','operation_failed',exc)
                 # Send before yielding: CLI/GUI may stop iteration at terminal.
                 tracking.finish(worker,outcome,tracking.summary(e,first,refresh));worker=None
             yield e
     except Exception:
         outcome='primary_failed';raise
     finally:
+        if track_primary and not recorded:
+            try:tracking.record_primary(tracking.mode(options),outcome,{'seconds':time.monotonic()-started,'first_seconds':first or 0,'count':0})
+            except Exception as exc:__import__('diagnostics').record('comparison','operation_failed',exc)
         tracking.finish(worker,outcome,tracking.summary(terminal,first,refresh) if terminal else None)

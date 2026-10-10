@@ -339,3 +339,21 @@ error log. The log stores only fixed component/error categories and counts in
 comparison settings, missing USB targets and shadow failures/timeouts. No query,
 filename, result, raw exception or traceback is retained; old failures cannot
 be recovered retroactively. A logging failure never interrupts search.
+
+AI/local automation can control the same desktop through a same-user Unix
+socket: `searchfu gui-control status`, `reload`, `cancel`, `show`, or `search`.
+Search text comes from stdin, never command-line arguments; optional `--scope`
+and `--mode` choose the controls. Replies expose only accepted/running state,
+fixed phases/outcomes, elapsed seconds and result counts. They never echo the
+query, scope, paths or snippets. Reload waits for owned workers to exit before
+replacing the GUI process. One GUI owns the socket; repeated GUI launches show
+the existing window. Socket/lock permissions are 0600 and no TCP port is opened.
+
+Comparison now shows active ownership, every mode including zero counts, and
+standalone primary timing even if USB pairing fails. Search budget exhaustion
+is distinct from cancellation. Paired latency remains separate from standalone
+attempt statistics; neither implies content relevance or source coverage.
+
+Older USB databases are searched through temporary compatibility views;
+search never migrates or writes the USB database. Keyword ranking uses the
+native FTS rank ordering to avoid sorting joined matches before first results.

@@ -35,6 +35,9 @@ export CUDA_VISIBLE_DEVICES="${SEARCHFU_CUDA:+0}"
 cmd="${1:-status}"
 if [ $# -gt 0 ]; then shift; fi
 case "$cmd" in
+  gui-control)
+    exec "$PY" "$SCRIPT_DIR/gui_control.py" "$@"
+    ;;
   gui)
     exec "$PY" "$SCRIPT_DIR/gui.py" "$@"
     ;;
@@ -71,7 +74,7 @@ case "$cmd" in
     exec "$PY" "$SCRIPT_DIR/search.py" --db "$DB" stats
     ;;
   *)
-    echo "usage: searchfu.sh {build|update [roots...] | search QUERY [opts] | stream QUERY | start QUERY | poll JOB | cancel JOB | status | stats}" >&2
+    echo "usage: searchfu.sh {build|update [roots...] | search QUERY [opts] | stream QUERY | start QUERY | poll JOB | cancel JOB | status | stats | gui | gui-control ACTION | metrics --agent | errors --agent}" >&2
     exit 2
     ;;
 esac
