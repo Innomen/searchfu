@@ -35,6 +35,12 @@ export CUDA_VISIBLE_DEVICES="${SEARCHFU_CUDA:+0}"
 cmd="${1:-status}"
 if [ $# -gt 0 ]; then shift; fi
 case "$cmd" in
+  replicate)
+    exec "$PY" "$SCRIPT_DIR/replication.py" "$@"
+    ;;
+  inventory-compare)
+    exec "$PY" "$SCRIPT_DIR/index_comparison.py" "$@"
+    ;;
   metadata-upgrade)
     exec "$PY" "$SCRIPT_DIR/metadata_upgrade.py" "$@"
     ;;

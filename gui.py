@@ -204,6 +204,7 @@ def main(db=None):
                 if attempts:lines.append(f"{mode.capitalize()} NVMe: {int(v.get('primary_completed',0))}/{int(attempts)} searches completed • mean elapsed {v.get('primary_seconds_sum',0)/attempts:.2f}s • cancellations {int(v.get('primary_cancelled',0))} • time limits {int(v.get('primary_timeouts',0))} • failures {int(v.get('primary_failures',0))}")
                 if v.get('shadow_attempts'):lines.append(f"{mode.capitalize()} USB observations (includes partial work): {int(v.get('shadow_completed',0))}/{int(v['shadow_attempts'])} completed • {v.get('shadow_observed_seconds',0):.1f}s banked • {int(v.get('shadow_observed_peak_results',0))} peak results summed across attempts • {int(v.get('shadow_partial_count_sum',0))} results retained on incomplete exits • {v.get('shadow_observed_read_bytes',0)/1024**3:.2f} GiB physical reads • {v.get('shadow_observed_cpu_seconds',0):.1f}s CPU")
                 n=v.get('paired',0);lines.append(f'{mode.capitalize()} — {int(n)} completed comparisons')
+                if n:lines.append(f"  Same snapshot verified: {int(v.get('matched_snapshot_pairs',0))}/{int(n)}. Other pairs include different or unverified snapshots.")
                 if n:
                     for drive in ('nvme','usb'):
                         lines.append(f"  {drive.upper()}: mean {v.get(drive+'_seconds_sum',0)/n:.3f}s; first results {v.get(drive+'_first_seconds_sum',0)/n:.3f}s; index stages {v.get(drive+'_index_seconds_sum',0)/n:.3f}s; query encoding/model load {v.get(drive+'_encoding_seconds_sum',0)/n:.3f}s; mean results {v.get(drive+'_count_sum',0)/n:.1f}")
@@ -217,7 +218,10 @@ def main(db=None):
             if not cfg['enabled']:status='Comparison disabled. Enable cloning in Settings.'
             elif not cfg['usb_db']:status=f'Comparison not running: USB database not configured. {int(skipped)} searches skipped. Choose the existing USB database in Settings and save.'
             elif not Path(cfg['usb_db']).is_file():status='Comparison not running: configured USB database is unavailable. Check that the drive is mounted and the file exists.'
-            else:status=f"{'Comparison running — waiting for both searches to finish' if data.get('activity',{}).get('active') else 'Comparison ready'} • {int(paired)} completed pairs. NVMe timing is recorded even when pairing fails."
+            else:
+                from replication import snapshot_matches
+                replica='same snapshot verified' if snapshot_matches(cfg) else 'snapshots differ or are unverified; timings are not a controlled drive comparison'
+                status=f"{'Comparison running — waiting for both searches to finish' if data.get('activity',{}).get('active') else 'Comparison ready'} • {int(paired)} completed pairs • {replica}. NVMe timing is recorded even when pairing fails."
             if any(v.get('legacy_scope_unsupported') for v in data['modes'].values()):status+=' A previous folder comparison lacked filesystem metadata. A metadata-only upgrade can repair this without a full recrawl; unavailable paths may still prevent a complete folder comparison.'
             self.comparison_status.setText(status);self.update_errors()
             self.metrics.setPlainText('\n'.join(lines) or 'No completed comparisons yet. Search normally; this view updates automatically.')

@@ -466,3 +466,22 @@ was produced. Metadata migration therefore did not resolve USB search latency.
 Zero search time limit disables both the GUI primary retrieval deadline and the USB supervisor deadline. Nonzero limits retain hard child termination. The GUI cancel action must cancel an active USB comparison even after the primary worker exits. Progressive evidence is retained locally in private append-only event journals and latest snapshots, outside source, with 0700 directories and 0600 files. It is never part of an agent response.
 
 Closed numeric experiment counters checkpoint monotonic elapsed time, first-result time, peak result counts and event counts independently of final pairing. USB supervision checkpoints its owned child CPU seconds and physical read bytes every five seconds. Terminal classification distinguishes completion, cancellation, timeout and failure, retaining the latest partial count. Repeated snapshots must not double-count monotonic observations. Completed-pair metrics remain separate. Synthetic gates cover partial retention after hard timeout and successful completion past the former deadline with unlimited configured.
+
+## One index, two storage copies (2026-10-10)
+
+The owner intends one logical computer-wide index with an authoritative NVMe
+copy and a USB replica. Existing unmatched inventories are not a controlled
+storage benchmark. `inventory-compare --comparison-target` locally joins stored
+paths and returns only shared/unique counts, files/chunks, root counts and
+database/free-page bytes; it does not claim shared paths have equal contents.
+
+Explicit `replicate --comparison-target --wait` holds the comparison lock after
+the preceding experiment completes and writer/cache locks while taking a
+SQLite backup plus its matching caches. It stages artifacts, checks copied page
+count/cache sizes/index identity, fsyncs, retains existing artifacts and
+publishes under the lock, rolling back ordinary errors. Empty WAL creation by
+a read-only open is not a source-content change. A private target manifest
+records source/target file stamps; changed databases or cache metadata invalidate
+freshness. Matched-snapshot counters require verified freshness at launch and
+finish plus primary refresh disabled. Missing markers and historical pairs are
+unverified; they remain experimental evidence, never retroactively matched.

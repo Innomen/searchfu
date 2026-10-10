@@ -61,3 +61,14 @@ never unload the LLM or fall back to exclusive admission. --no-refresh opts out.
 Bulk indexing retains its priority lease. Test cancellation through worker exit.
 
 Continuous experiment policy (owner, 2026-10-10): preserve partial search evidence locally and bank closed numeric progress independently of completed pairs. A configured time limit of 0 means unlimited across GUI and USB; cancellation still owns child termination. Private evidence journals are never an agent-readable surface. Do not treat a deadline or absent final pair as permission to discard observations.
+
+Replica contract (owner, 2026-10-10): one logical computer-wide index, with
+NVMe authoritative and USB a matching replica, not independently growing
+corpora. An explicit `replicate --comparison-target --wait` copies a stable
+SQLite snapshot and matching caches without crawling or embedding, retaining
+the preceding USB artifacts. Do not replace artifacts beneath an active
+experiment. `inventory-compare --comparison-target` is a closed aggregate-only
+diagnostic: paths stay inside SQLite. File inventory overlap does not establish
+text/vector equality. Timing pairs from different or unverified snapshots must
+never be presented as a controlled hardware comparison. Replica freshness is
+conservative; writes after replication invalidate the matched-snapshot status.

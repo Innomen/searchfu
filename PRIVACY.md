@@ -79,3 +79,10 @@ fixed errors and booleans. Private paths and ANN identities never appear in its
 reports. This separate write operation does not change read-only shadow search.
 
 Private evidence journals under XDG_STATE_HOME/searchfu/evidence retain GUI and USB progressive results locally, including partial events. They are private data, never developer diagnostics: do not enumerate, read or export them. Directories are 0700 and files 0600. Agent metrics expose only fixed numeric experiment aggregates, including child CPU time and physical read bytes; no evidence content, identities or journal paths are exported.
+
+Owner-authorized inventory comparison returns only counts, byte totals and
+booleans. Shared paths are joined locally; neither paths nor identities leave
+SQLite. Snapshot replication transfers private data locally between configured
+index locations, never through provider-visible output. Its reports contain
+fixed phases, counts, durations and booleans only. Replica manifests contain
+private local paths and file stamps and are not an agent-readable surface.

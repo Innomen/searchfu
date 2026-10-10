@@ -371,3 +371,25 @@ read-only. It does not rebuild the full-text index or address USB query latency.
 Settings → Search time limit accepts 0 (No time limit) for both primary GUI searches and USB comparisons. Cancel remains available while the USB comparison runs after primary results finish. Partial observations are banked independently of completed pairs: result counts, elapsed time, time to first result, and USB CPU seconds and physical read bytes. USB observations persist every five seconds, including while retrieval has not emitted results. Cancellation and failures preserve these observations; they do not count as completed pairs.
 
 GUI and USB retrieval events also remain in private local evidence journals under XDG_STATE_HOME/searchfu/evidence (directories 0700, files 0600). These contain private results and must never be read by remote agents. They are separate from the aggregate-only metrics and diagnostics; no query history is added to those surfaces.
+
+The intended deployment is one logical computer-wide index with NVMe as its
+authoritative storage and USB as a replica. Independently existing databases
+may have different coverage; identical search text does not make their timing
+a controlled drive comparison. To check stored inventories without exporting
+filenames, use `searchfu inventory-compare --comparison-target`. Its shared-path
+counts do not establish content equality.
+
+Use `searchfu replicate --comparison-target --wait` to explicitly copy the
+NVMe SQLite snapshot and matching caches to the configured USB target. It waits
+for an active comparison to finish, excludes cooperating index/cache writers,
+includes committed WAL data and stages the full copy before replacement.
+Previous USB artifacts remain beside the target for rollback. This needs free
+space for the entire new copy plus an 8 GiB reserve; it neither crawls source
+files nor re-embeds. Failed transfers retain the old usable target. Copy and
+publication errors trigger rollback; abrupt power loss during the short
+multi-artifact publication window requires local recovery from retained copies.
+
+The Comparison screen distinguishes verified matching snapshots from different
+or unverified ones. Source updates invalidate replica freshness; replication is
+explicit, not automatically triggered by every small query refresh. Matched
+snapshot status also requires refresh disabled for both measured searches.

@@ -57,11 +57,12 @@ def _connection():
     c.execute('CREATE TABLE IF NOT EXISTS counters(mode TEXT, metric TEXT, value REAL NOT NULL, PRIMARY KEY(mode,metric))')
     return c
 
-def record(mode,outcome,primary=None,shadow=None):
+def record(mode,outcome,primary=None,shadow=None,snapshot_matched=False):
     """Accept no free-form text. Never store per-search rows or timestamps."""
     if mode not in MODES or outcome not in OUTCOMES:raise ValueError('invalid_metric_category')
     values={outcome:1}
     if outcome=='paired':
+        values['matched_snapshot_pairs' if snapshot_matched else 'unmatched_snapshot_pairs']=1
         for label,s in (('nvme',primary),('usb',shadow)):
             for name in ('seconds','first_seconds','count','index_seconds','encoding_seconds'):
                 n=s.get(name,0)
@@ -139,7 +140,7 @@ def report():
         out={}
         for mode,key,value in c.execute('SELECT mode,metric,value FROM counters'):
             # Deliberately closed export vocabulary: unexpected stored data stays local.
-            allowed=set(OUTCOMES)|PRIMARY_KEYS|EXPERIMENT_KEYS|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
+            allowed=set(OUTCOMES)|PRIMARY_KEYS|EXPERIMENT_KEYS|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled','matched_snapshot_pairs','unmatched_snapshot_pairs'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
             if mode not in MODES or key not in allowed or type(value) not in (int,float) or not math.isfinite(value) or value<0:continue
             out.setdefault(mode,{})[key]=value
     return {'version':1,'modes':out,'latency_bucket_upper_seconds':list(BUCKETS),'measurement':'concurrent_read_only_shadow','activity':activity()}
@@ -200,7 +201,8 @@ def launch(db,query,options):
     if not scope_supported(cfg['usb_db'],options):
         diagnostics.record('comparison','legacy_scope_unsupported');record(m,'legacy_scope_unsupported');return None
     safe={k:v for k,v in options.items() if k not in ('models','reranker','cancelled')}
-    payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m})+'\n'
+    from replication import snapshot_matches
+    payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m,'snapshot_matched':snapshot_matches(cfg)})+'\n'
     env={**os.environ,'SEARCHFU_SHADOW':'1','SEARCHFU_CUDA':'0','CUDA_VISIBLE_DEVICES':''}
     p=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--supervisor'],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True,env=env,start_new_session=True)
     try:p.stdin.write(payload);p.stdin.flush()
@@ -283,7 +285,9 @@ def supervisor():
             bank(m,{'shadow_completed' if outcome=='paired' else 'shadow_timeouts' if outcome=='shadow_timeout' else 'shadow_cancelled' if outcome in ('cancelled','primary_timeout') else 'shadow_failures':1,
                     'shadow_final_count_sum' if outcome=='paired' else 'shadow_partial_count_sum':result_count})
             if outcome in ('shadow_failed','shadow_timeout'):diagnostics.record('comparison',outcome)
-            record(m,outcome,primary.get('primary'),answer.get('summary'))
+            from replication import snapshot_matches
+            matched=bool(request.get('snapshot_matched') and not primary.get('primary',{}).get('refresh',False) and snapshot_matches(cfg))
+            record(m,outcome,primary.get('primary'),answer.get('summary'),snapshot_matched=matched)
         finally:
             if child.poll() is None:child.kill()
             t.join();child.wait();stopping.set();guard.join()
