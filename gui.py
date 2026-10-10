@@ -20,12 +20,15 @@ def browse(db, text='', scope='', after='', limit=100, cancelled=None):
 def worker():
     request=json.load(sys.stdin)
     from retrieval import retrieve
+    from evidence_bank import EvidenceBank
+    evidence=EvidenceBank('gui')
     stop=threading.Event()
     signal.signal(signal.SIGTERM,lambda *_:stop.set())
     signal.signal(signal.SIGINT,lambda *_:stop.set())
     print(json.dumps({'stage':'opening','complete':False}),flush=True)
     print(json.dumps({'stage':'filename_scan' if request['options'].get('names_only') else 'keyword_scan','complete':False}),flush=True)
     for e in retrieve(request['db'],request['query'],cancelled=stop.is_set,**request['options']):
+        evidence.append(e)
         print(json.dumps(e),flush=True)
 
 
@@ -111,11 +114,11 @@ def main(db=None):
             for label,key in [('Database','SEARCHFU_DB'),('Matrix folder','SEARCHFU_ANN_DIR'),('Candidate folder','SEARCHFU_CANDIDATES_DIR')]:
                 w=QLineEdit(str(db) if key=='SEARCHFU_DB' else primary[key]);w.setReadOnly(True);self.primary_paths[key]=w;form.addRow(label,w)
             l.addWidget(box);box=QGroupBox('Search comparison');form=QFormLayout(box)
-            self.enabled=QCheckBox('Clone searches to USB');self.usb_db=QLineEdit();self.usb_ann=QLineEdit();self.usb_candidates=QLineEdit();self.timeout=QSpinBox();self.timeout.setRange(1,300)
+            self.enabled=QCheckBox('Clone searches to USB');self.usb_db=QLineEdit();self.usb_ann=QLineEdit();self.usb_candidates=QLineEdit();self.timeout=QSpinBox();self.timeout.setRange(0,300);self.timeout.setSpecialValueText('No time limit')
             form.addRow(self.enabled)
             for label,w,directory in [('USB database',self.usb_db,False),('USB matrix folder',self.usb_ann,True),('USB candidate folder',self.usb_candidates,True)]:
                 row=QHBoxLayout();row.addWidget(w);row.addWidget(self.button('Choose…',lambda _=False,w=w,d=directory:self.pick(w,d)));form.addRow(label,row)
-            self.usb_db.setPlaceholderText('Not configured — choose the existing USB database');self.usb_db.textChanged.connect(self.usb_defaults);self.usb_ann.textChanged.connect(self.usb_defaults);self.usb_candidates.textChanged.connect(self.usb_defaults);self.usb_effective=QLabel();self.usb_effective.setWordWrap(True);form.addRow('Effective USB paths',self.usb_effective);form.addRow('Shadow timeout (seconds)',self.timeout);form.addRow(self.button('Save comparison settings',self.save_settings));l.addWidget(box)
+            self.usb_db.setPlaceholderText('Not configured — choose the existing USB database');self.usb_db.textChanged.connect(self.usb_defaults);self.usb_ann.textChanged.connect(self.usb_defaults);self.usb_candidates.textChanged.connect(self.usb_defaults);self.usb_effective=QLabel();self.usb_effective.setWordWrap(True);form.addRow('Effective USB paths',self.usb_effective);form.addRow('Search time limit (seconds; 0 = unlimited)',self.timeout);form.addRow(self.button('Save comparison settings',self.save_settings));l.addWidget(box)
             cfg=comparison.load();self.enabled.setChecked(cfg['enabled']);self.usb_db.setText(cfg['usb_db']);self.usb_ann.setText(cfg['usb_ann']);self.usb_candidates.setText(cfg['usb_candidates']);self.timeout.setValue(int(cfg['timeout_seconds']));self.usb_defaults()
             box=QGroupBox('Folder / collection views');form=QFormLayout(box);self.edit_scope=QComboBox();self.edit_scope.currentIndexChanged.connect(self.edit_collection);self.scope_name=QLineEdit();self.scope_root=QLineEdit();self.priority=QSpinBox();self.priority.setRange(-10000,10000);self.priority.setValue(100);form.addRow('Existing view',self.edit_scope);form.addRow('Name',self.scope_name)
             row=QHBoxLayout();row.addWidget(self.scope_root);row.addWidget(self.button('Choose…',lambda:self.pick(self.scope_root,True)));form.addRow('Folder',row);form.addRow('Priority (lower first)',self.priority);form.addRow(self.button('Save folder view',self.save_collection));form.addRow(self.button('Delete selected view',self.delete_collection));l.addWidget(box)
@@ -139,7 +142,7 @@ def main(db=None):
         def start_search(self):
             if self.task or not self.query.text().strip():return
             self.started=time.monotonic();self.phase='starting';self.outcome=None;self.console.clear();self.console.append('Starting local index search.');self.results=[];self.table.setRowCount(0);self.preview.clear();self.go.setEnabled(False);self.cancel_button.setEnabled(True)
-            name=self.mode.currentText();options={'top_k':self.top.value(),'scopes':[self.scope.currentData()] if self.scope.currentData() else [],'fts_only':name=='Keywords','names_only':name=='Filenames','deep':name=='Deep','early':True,'refresh':self.refresh.isChecked(),'max_seconds':300}
+            name=self.mode.currentText();options={'top_k':self.top.value(),'scopes':[self.scope.currentData()] if self.scope.currentData() else [],'fts_only':name=='Keywords','names_only':name=='Filenames','deep':name=='Deep','early':True,'refresh':self.refresh.isChecked(),'max_seconds':comparison.load()['timeout_seconds'] or None}
             self.task=Task({'db':str(db),'query':self.query.text(),'options':options});self.task.event.connect(self.search_event);self.task.failed.connect(self.search_failed);self.task.finished.connect(self.search_finished);self.progress.setText('Starting…');self.task.start()
         def search_event(self,e):
             # Closed console vocabulary: never echo scope names, errors, queries or paths.
@@ -163,6 +166,7 @@ def main(db=None):
             self.update_metrics()
         def cancel_search(self):
             if self.task:self.phase='cancelling';self.task.cancel();self.console.append('Cancellation requested; waiting for worker exit.');self.progress.setText('Cancelling… waiting for workers to exit.')
+            if comparison.cancel_active():self.console.append('USB comparison cancellation requested; banked observations are retained.')
         def preview_result(self):
             i=self.table.currentRow()
             if 0<=i<len(self.results):self.preview.setPlainText(self.results[i].get('snippet') or 'Filename-only match; text is not indexed.')
@@ -193,10 +197,12 @@ def main(db=None):
             task.finished.connect(finished);task.start()
         def update_metrics(self):
             data=comparison.report();lines=[]
+            self.cancel_button.setEnabled(bool(self.task or data.get('activity',{}).get('active')))
             for mode in comparison.MODES:
                 v=data['modes'].get(mode,{})
                 attempts=v.get('primary_attempts',0)
                 if attempts:lines.append(f"{mode.capitalize()} NVMe: {int(v.get('primary_completed',0))}/{int(attempts)} searches completed • mean elapsed {v.get('primary_seconds_sum',0)/attempts:.2f}s • cancellations {int(v.get('primary_cancelled',0))} • time limits {int(v.get('primary_timeouts',0))} • failures {int(v.get('primary_failures',0))}")
+                if v.get('shadow_attempts'):lines.append(f"{mode.capitalize()} USB observations (includes partial work): {int(v.get('shadow_completed',0))}/{int(v['shadow_attempts'])} completed • {v.get('shadow_observed_seconds',0):.1f}s banked • {int(v.get('shadow_observed_peak_results',0))} peak results summed across attempts • {int(v.get('shadow_partial_count_sum',0))} results retained on incomplete exits • {v.get('shadow_observed_read_bytes',0)/1024**3:.2f} GiB physical reads • {v.get('shadow_observed_cpu_seconds',0):.1f}s CPU")
                 n=v.get('paired',0);lines.append(f'{mode.capitalize()} — {int(n)} completed comparisons')
                 if n:
                     for drive in ('nvme','usb'):

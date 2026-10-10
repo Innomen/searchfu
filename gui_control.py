@@ -18,12 +18,12 @@ def request(command,timeout=3):
             if len(raw)>16384:raise RuntimeError('invalid_control_reply')
         reply=json.loads(raw.split(b'\n')[0])
         # Defense in depth: only this closed envelope may leave the local client.
-        allowed={'accepted','running','phase','outcome','result_count','elapsed_seconds','reload_pending','error'}
+        allowed={'accepted','running','comparison_running','phase','outcome','result_count','elapsed_seconds','reload_pending','error'}
         if set(reply)-allowed:raise RuntimeError('invalid_control_reply')
         if 'phase' in reply and reply['phase'] not in {'ready','starting','opening','keyword_scan','filename_scan','keyword','encoding','candidate','candidates','semantic','quantized','full_precision','refine','refined','rerank','reranked','reranked_early','refresh','done','cancelled','deep','working','cancelling','failed'}:raise RuntimeError('invalid_control_reply')
         if reply.get('error') not in (None,'busy','invalid_command','unavailable'):raise RuntimeError('invalid_control_reply')
         if reply.get('outcome') not in (None,'done','cancelled','failed','primary_timeout'):raise RuntimeError('invalid_control_reply')
-        for key in ('accepted','running','reload_pending'):
+        for key in ('accepted','running','comparison_running','reload_pending'):
             if key in reply and type(reply[key]) is not bool:raise RuntimeError('invalid_control_reply')
         for key in ('result_count','elapsed_seconds'):
             if key in reply and (type(reply[key]) not in (int,float) or not 0<=reply[key]<=1e9):raise RuntimeError('invalid_control_reply')
@@ -43,7 +43,8 @@ def install(window,app):
     os.chmod(p,0o600);window.control_server=server;window.reload_requested=False
     def status():
         elapsed=max(0,__import__('time').monotonic()-window.started) if window.task else getattr(window,'finished_elapsed',0)
-        return {'running':window.task is not None,'phase':window.phase.lower(),'outcome':window.outcome,'result_count':len(window.results),'elapsed_seconds':round(elapsed,2),'reload_pending':window.reload_requested}
+        import comparison
+        return {'running':window.task is not None,'comparison_running':comparison.activity()['active'],'phase':window.phase.lower(),'outcome':window.outcome,'result_count':len(window.results),'elapsed_seconds':round(elapsed,2),'reload_pending':window.reload_requested}
     def accept():
         client=server.nextPendingConnection();buffer=bytearray()
         def receive():

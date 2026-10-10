@@ -331,7 +331,7 @@ worker thread. Folder-view configuration uses the existing collection contract.
 
 `retrieval.retrieve` wraps the existing primary retrieval/freshness generator.
 `comparison.py` supervises one read-only USB shadow per user, bounded by a
-configurable hard timeout. The target is explicit local configuration, never a
+configurable hard timeout, or no deadline when configured as 0. The target is explicit local configuration, never a
 primary fallback or an index-discovery heuristic. Default enablement takes effect
 once a target is configured. A missing target is a counted skip, not a search
 failure. A primary terminal event is delivered without waiting for comparison;
@@ -460,3 +460,9 @@ The subsequent unscoped keyword retest returned 12 primary results in 0.86
 seconds, while the upgraded USB index again reached the 300-second timeout.
 The supervisor exited and active ownership cleared; no valid paired benchmark
 was produced. Metadata migration therefore did not resolve USB search latency.
+
+## Continuous experiment contract
+
+Zero search time limit disables both the GUI primary retrieval deadline and the USB supervisor deadline. Nonzero limits retain hard child termination. The GUI cancel action must cancel an active USB comparison even after the primary worker exits. Progressive evidence is retained locally in private append-only event journals and latest snapshots, outside source, with 0700 directories and 0600 files. It is never part of an agent response.
+
+Closed numeric experiment counters checkpoint monotonic elapsed time, first-result time, peak result counts and event counts independently of final pairing. USB supervision checkpoints its owned child CPU seconds and physical read bytes every five seconds. Terminal classification distinguishes completion, cancellation, timeout and failure, retaining the latest partial count. Repeated snapshots must not double-count monotonic observations. Completed-pair metrics remain separate. Synthetic gates cover partial retention after hard timeout and successful completion past the former deadline with unlimited configured.

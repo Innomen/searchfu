@@ -537,7 +537,7 @@ def _retrieve_with_refresh(db, query, *, refresh=True, **options):
 def retrieve(db, query, *, refresh=True, comparison=True, **options):
     """Primary results retain their contract; optional shadow owns separate caches."""
     import comparison as tracking
-    worker=None;first=None;terminal=None;outcome='cancelled';started=time.monotonic();track_primary=False;recorded=False
+    worker=None;first=None;terminal=None;latest=None;outcome='cancelled';started=time.monotonic();track_primary=False;recorded=False;observations=None
     # Synthetic/migration callers remain isolated. Installed CLI and EMS both pin
     # SEARCHFU_DB to the primary; callers can explicitly disable comparisons.
     from runtime_paths import pinned_paths
@@ -550,10 +550,15 @@ def retrieve(db, query, *, refresh=True, comparison=True, **options):
     if eligible:
         try:
             track_primary=tracking.load()['enabled'];worker=tracking.launch(db,query,{**options,'refresh':refresh})
+            if track_primary:observations=tracking.Observations(tracking.mode(options),'primary')
         except Exception as exc:
             __import__('diagnostics').record('comparison','operation_failed',exc)
     try:
         for e in _retrieve_with_refresh(db,query,refresh=refresh,**options):
+            if 'results' in e:latest=e
+            if observations:
+                try:observations.checkpoint(e.get('elapsed_seconds',0),len(e['results']) if 'results' in e else None,event=True)
+                except Exception as exc:__import__('diagnostics').record('comparison','operation_failed',exc)
             if first is None and (e.get('results') or e.get('changes')):first=e['elapsed_seconds']
             if e['stage'] in ('done','cancelled'):
                 terminal=e;outcome='paired' if e['stage']=='done' else 'primary_timeout' if e.get('reason')=='budget_exhausted' else 'cancelled'
@@ -567,6 +572,6 @@ def retrieve(db, query, *, refresh=True, comparison=True, **options):
         outcome='primary_failed';raise
     finally:
         if track_primary and not recorded:
-            try:tracking.record_primary(tracking.mode(options),outcome,{'seconds':time.monotonic()-started,'first_seconds':first or 0,'count':0})
+            try:tracking.record_primary(tracking.mode(options),outcome,{'seconds':time.monotonic()-started,'first_seconds':first or 0,'count':len(latest.get('results',[])) if latest else 0})
             except Exception as exc:__import__('diagnostics').record('comparison','operation_failed',exc)
         tracking.finish(worker,outcome,tracking.summary(terminal,first,refresh) if terminal else None)

@@ -59,3 +59,5 @@ Default refresh policy (owner, 2026-10-07): bounded known-file repair overlaps
 retrieval. Use the shared Archon lease, batches <=8 and 256 MiB allocator cap;
 never unload the LLM or fall back to exclusive admission. --no-refresh opts out.
 Bulk indexing retains its priority lease. Test cancellation through worker exit.
+
+Continuous experiment policy (owner, 2026-10-10): preserve partial search evidence locally and bank closed numeric progress independently of completed pairs. A configured time limit of 0 means unlimited across GUI and USB; cancellation still owns child termination. Private evidence journals are never an agent-readable surface. Do not treat a deadline or absent final pair as permission to discard observations.

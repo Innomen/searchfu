@@ -297,7 +297,7 @@ retrieval wrapper. An identical request runs concurrently against the USB index,
 with refresh disabled there. One shadow is allowed at a time across processes;
 additional requests are counted as busy skips, not queued. The primary never
 waits for USB. A detached supervisor owns the read-only child through completion,
-cancellation or a hard timeout (default 120 seconds, configurable 1–300).
+cancellation or a hard timeout (default 120 seconds, configurable 0–300; 0 means unlimited).
 In-process custom rerankers cannot be cloned and are counted as unsupported.
 Use `--no-comparison` for an individual search, or disable it in Settings.
 
@@ -365,3 +365,9 @@ text, embeddings and cache identity. Reports contain only counts and timings.
 Unavailable paths remain unknown and can still prevent a complete folder-pinned
 comparison. This command writes metadata; ordinary shadow searches remain
 read-only. It does not rebuild the full-text index or address USB query latency.
+
+### Continuous experiment retention
+
+Settings → Search time limit accepts 0 (No time limit) for both primary GUI searches and USB comparisons. Cancel remains available while the USB comparison runs after primary results finish. Partial observations are banked independently of completed pairs: result counts, elapsed time, time to first result, and USB CPU seconds and physical read bytes. USB observations persist every five seconds, including while retrieval has not emitted results. Cancellation and failures preserve these observations; they do not count as completed pairs.
+
+GUI and USB retrieval events also remain in private local evidence journals under XDG_STATE_HOME/searchfu/evidence (directories 0700, files 0600). These contain private results and must never be read by remote agents. They are separate from the aggregate-only metrics and diagnostics; no query history is added to those surfaces.

@@ -77,3 +77,5 @@ locally on the configured USB catalog. It stats known paths without reading
 source content or traversing directories, and exports only counts, durations,
 fixed errors and booleans. Private paths and ANN identities never appear in its
 reports. This separate write operation does not change read-only shadow search.
+
+Private evidence journals under XDG_STATE_HOME/searchfu/evidence retain GUI and USB progressive results locally, including partial events. They are private data, never developer diagnostics: do not enumerate, read or export them. Directories are 0700 and files 0600. Agent metrics expose only fixed numeric experiment aggregates, including child CPU time and physical read bytes; no evidence content, identities or journal paths are exported.

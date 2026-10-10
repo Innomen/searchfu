@@ -35,7 +35,7 @@ def validate(data):
     for key in ('usb_db','usb_ann','usb_candidates'):
         if not isinstance(data[key],str) or (data[key] and not Path(data[key]).is_absolute()):raise ValueError('invalid_comparison_settings')
     n=data['timeout_seconds']
-    if type(n) not in (int,float) or not math.isfinite(n) or not 1<=n<=300:raise ValueError('invalid_comparison_settings')
+    if type(n) not in (int,float) or not math.isfinite(n) or not 0<=n<=300:raise ValueError('invalid_comparison_settings')
     return data
 
 def save(data):
@@ -80,6 +80,30 @@ def record(mode,outcome,primary=None,shadow=None):
             c.execute('INSERT INTO counters VALUES(?,?,?) ON CONFLICT(mode,metric) DO UPDATE SET value=value+excluded.value',(mode,key,value))
 
 PRIMARY_KEYS={'primary_attempts','primary_completed','primary_cancelled','primary_timeouts','primary_failures','primary_seconds_sum','primary_first_seconds_sum','primary_count_sum'}
+EXPERIMENT_KEYS={f'{role}_observed_{field}' for role in ('primary','shadow') for field in ('seconds','peak_results','events','first_seconds','read_bytes','cpu_seconds')}|{'shadow_attempts','shadow_completed','shadow_cancelled','shadow_timeouts','shadow_failures','shadow_final_count_sum','shadow_partial_count_sum'}
+
+def bank(m,values):
+    if m not in MODES or set(values)-EXPERIMENT_KEYS:raise ValueError('invalid_observation')
+    for n in values.values():
+        if type(n) not in (int,float) or not math.isfinite(n) or not 0<=n<=1e18:raise ValueError('invalid_observation')
+    with closing(_connection()) as c,c:
+        for key,n in values.items():c.execute('INSERT INTO counters VALUES(?,?,?) ON CONFLICT(mode,metric) DO UPDATE SET value=value+excluded.value',(m,key,n))
+
+class Observations:
+    """Bank monotonic deltas, never an identifiable per-search record."""
+    def __init__(self,m,role):
+        self.m=m;self.role=role;self.previous={};self.first=None;self.peak=0;self.events=0;self.lock=threading.Lock()
+    def checkpoint(self,seconds,count=None,*,event=False,read_bytes=0,cpu_seconds=0):
+        with self.lock:self._checkpoint(seconds,count,event=event,read_bytes=read_bytes,cpu_seconds=cpu_seconds)
+    def _checkpoint(self,seconds,count=None,*,event=False,read_bytes=0,cpu_seconds=0):
+        if count is not None:
+            self.peak=max(self.peak,count)
+            if count and self.first is None:self.first=seconds
+        self.events+=int(event)
+        current={'seconds':seconds,'peak_results':self.peak,'events':self.events,'first_seconds':self.first or 0,'read_bytes':read_bytes,'cpu_seconds':cpu_seconds}
+        values={self.role+'_observed_'+key:max(0,n-self.previous.get(key,0)) for key,n in current.items()}
+        bank(self.m,values);self.previous={key:max(n,self.previous.get(key,0)) for key,n in current.items()}
+
 def record_primary(m,outcome,s):
     if m not in MODES or outcome not in ('paired','cancelled','primary_timeout','primary_failed'):raise ValueError('invalid_primary_metric')
     # Independent attempts must not share counters with pairing outcomes.
@@ -104,13 +128,18 @@ def activity():
         return {'active':False}
     except OSError:return {'active':False,'unavailable':True}
 
+def cancel_active():
+    if not activity()['active']:return False
+    fd=os.open(metrics_path().parent/'comparison.cancel',os.O_CREAT|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+    os.close(fd);return True
+
 def report():
     if not metrics_path().exists():return {'version':1,'modes':{},'measurement':'concurrent_read_only_shadow','activity':activity()}
     with closing(_connection()) as c:
         out={}
         for mode,key,value in c.execute('SELECT mode,metric,value FROM counters'):
             # Deliberately closed export vocabulary: unexpected stored data stays local.
-            allowed=set(OUTCOMES)|PRIMARY_KEYS|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
+            allowed=set(OUTCOMES)|PRIMARY_KEYS|EXPERIMENT_KEYS|{'overlap_sum','same_first','usb_faster','nvme_refresh_enabled'}|{f'{s}_{n}_sum' for s in ('nvme','usb') for n in ('seconds','first_seconds','count','index_seconds','encoding_seconds')}|{f'{s}_bucket_{i}' for s in ('nvme','usb') for i in range(len(BUCKETS)+1)}
             if mode not in MODES or key not in allowed or type(value) not in (int,float) or not math.isfinite(value) or value<0:continue
             out.setdefault(mode,{})[key]=value
     return {'version':1,'modes':out,'latency_bucket_upper_seconds':list(BUCKETS),'measurement':'concurrent_read_only_shadow','activity':activity()}
@@ -194,38 +223,87 @@ def supervisor():
     with os.fdopen(fd,'w') as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:record(m,'busy');return
+        cancelpath=metrics_path().parent/'comparison.cancel';cancelpath.unlink(missing_ok=True)
         env={**os.environ,'SEARCHFU_ANN_DIR':cfg['usb_ann'] or str(Path(cfg['usb_db']).parent/'ann'),'SEARCHFU_CANDIDATES_DIR':cfg['usb_candidates'] or str(Path(cfg['usb_db']).parent/'candidates')}
         child=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--shadow'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=env)
-        answer={}
+        answer={};observations=Observations(m,'shadow');bank(m,{'shadow_attempts':1});started=time.monotonic();timed_out=threading.Event();cancelled=threading.Event();stopping=threading.Event()
+        def sample():
+            io=cpu=0
+            try:
+                fields=Path('/proc',str(child.pid),'io').read_text().splitlines()
+                io=next(int(line.split(':')[1]) for line in fields if line.startswith('read_bytes:'))
+                fields=Path('/proc',str(child.pid),'stat').read_text().rsplit(')',1)[1].split()
+                cpu=(int(fields[11])+int(fields[12]))/os.sysconf('SC_CLK_TCK')
+            except (OSError,ValueError,StopIteration,IndexError):pass
+            observations.checkpoint(time.monotonic()-started,read_bytes=io,cpu_seconds=cpu)
         def collect():
             try:
-                raw,_=child.communicate(json.dumps(request),timeout=cfg['timeout_seconds'])
-                answer.update(json.loads(raw) if child.returncode==0 else {'outcome':'shadow_failed'})
-            except subprocess.TimeoutExpired:
-                child.kill();child.communicate();answer['outcome']='shadow_timeout'
+                child.stdin.write(json.dumps(request));child.stdin.close()
+                for line in child.stdout:
+                    response=json.loads(line)
+                    if 'summary' in response:
+                        s=response['summary'];answer['summary']=s
+                        observations.checkpoint(s['seconds'],s['count'],event=True)
+                    if 'outcome' in response:answer['outcome']=response['outcome']
+                child.wait()
+                if cancelled.is_set():answer['outcome']='cancelled'
+                elif timed_out.is_set():answer['outcome']='shadow_timeout'
+                elif child.returncode:answer['outcome']='shadow_failed'
             except Exception:
-                child.kill();child.communicate();answer['outcome']='shadow_failed'
+                if child.poll() is None:child.kill()
+                child.wait();answer['outcome']='shadow_failed'
+            finally:stopping.set()
+        def monitor():
+            while not stopping.wait(5):
+                try:sample()
+                except Exception as exc:diagnostics.record('comparison','operation_failed',exc)
+                if cancelpath.exists():
+                    cancelled.set()
+                    if child.poll() is None:child.kill()
+                    return
+                if cfg['timeout_seconds'] and time.monotonic()-started>=cfg['timeout_seconds']:
+                    timed_out.set()
+                    if child.poll() is None:child.kill()
+                    return
+        # A separate exact timer retains bounded mode's existing hard guarantee.
+        def expire():
+            timed_out.set()
+            if child.poll() is None:child.kill()
+        timer=threading.Timer(cfg['timeout_seconds'],expire) if cfg['timeout_seconds'] else None
+        if timer:timer.start()
+        guard=threading.Thread(target=monitor);guard.start()
         t=threading.Thread(target=collect);t.start()
         try:
             line=sys.stdin.readline();primary=json.loads(line) if line else {'outcome':'cancelled'}
             if primary['outcome']!='paired' and child.poll() is None:child.kill()
             t.join()
             outcome=primary['outcome'] if primary['outcome']!='paired' else answer.get('outcome','shadow_failed')
+            sample()
+            result_count=answer.get('summary',{}).get('count',0)
+            bank(m,{'shadow_completed' if outcome=='paired' else 'shadow_timeouts' if outcome=='shadow_timeout' else 'shadow_cancelled' if outcome in ('cancelled','primary_timeout') else 'shadow_failures':1,
+                    'shadow_final_count_sum' if outcome=='paired' else 'shadow_partial_count_sum':result_count})
             if outcome in ('shadow_failed','shadow_timeout'):diagnostics.record('comparison',outcome)
             record(m,outcome,primary.get('primary'),answer.get('summary'))
         finally:
             if child.poll() is None:child.kill()
-            t.join();child.wait()
+            t.join();child.wait();stopping.set();guard.join()
+            if timer:timer.cancel();timer.join()
+            cancelpath.unlink(missing_ok=True)
 
 def shadow():
     request=json.load(sys.stdin);cfg=request['config'];options=request['options']
-    options.update(refresh=False,deltas=False,max_seconds=min(options.get('max_seconds') or cfg['timeout_seconds'],cfg['timeout_seconds']))
+    budgets=[n for n in (options.get('max_seconds'),cfg['timeout_seconds']) if n]
+    options.update(refresh=False,deltas=False,max_seconds=min(budgets) if budgets else None)
     from retrieval import retrieve
+    from evidence_bank import EvidenceBank
+    evidence=EvidenceBank('usb-comparison')
     first=None;last=None
     for e in retrieve(cfg['usb_db'],request['query'],comparison=False,**options):
         if first is None and e.get('results'):first=e['elapsed_seconds']
         last=e
-    print(json.dumps({'outcome':'paired','summary':summary(last,first)} if last and last['stage']=='done' else {'outcome':'shadow_timeout'}))
+        evidence.append(e)
+        print(json.dumps({'summary':summary(e,first)}),flush=True)
+    print(json.dumps({'outcome':'paired' if last and last['stage']=='done' else 'shadow_timeout','summary':summary(last,first) if last else {'seconds':0,'count':0,'ids':[]}}),flush=True)
 
 if __name__=='__main__':
     try:
