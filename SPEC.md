@@ -367,3 +367,8 @@ worker and native GUI gates cover pre-SQL notification, stalled-stage status,
 terminal console state and primary path display. An early notification does
 not establish faster retrieval; archive-scale cold/common-term FTS remains a
 separate performance limitation.
+
+Comparison dashboard contract: an always-visible banner distinguishes disabled,
+unconfigured USB, unavailable USB and enabled states. Unconfigured searches
+show the aggregate missing-target count. Never present missing comparison output
+as a running benchmark. The native synthetic gate checks this blocker message.

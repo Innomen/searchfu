@@ -65,7 +65,7 @@ def main(db=None):
             super().__init__();self.setWindowTitle('Searchfu');self.resize(1120,780);self.task=None;self.started=0;self.phase='Ready';self.outcome=None;self.results=[];self.cursor='';self.browse_rows=[];self.local_tasks=[];self.browse_key=None
             self.tabs=QTabWidget();self.setCentralWidget(self.tabs)
             self.search_page();self.browse_page();self.metrics_page();self.settings_page()
-            self.tabs.currentChanged.connect(self.tab_changed);self.reload_scopes();self.metrics_timer=QTimer(self);self.metrics_timer.timeout.connect(self.update_metrics);self.metrics_timer.start(5000);self.activity_timer=QTimer(self);self.activity_timer.timeout.connect(self.activity_tick);self.activity_timer.start(250)
+            self.tabs.currentChanged.connect(self.tab_changed);self.reload_scopes();self.metrics_timer=QTimer(self);self.metrics_timer.timeout.connect(self.update_metrics);self.metrics_timer.start(5000);self.activity_timer=QTimer(self);self.activity_timer.timeout.connect(self.activity_tick);self.activity_timer.start(250);self.update_metrics()
         def page(self,title):
             page=QWidget();layout=QVBoxLayout(page);self.tabs.addTab(page,title);return layout
         def button(self,text,handler):
@@ -88,7 +88,7 @@ def main(db=None):
             row=QHBoxLayout();row.addWidget(self.button('First page',self.browse_reset));self.next_button=self.button('Next 100',self.browse_next);row.addWidget(self.next_button);row.addWidget(self.button('Open selected file',self.open_browse));l.addLayout(row);self.browse_status=QLabel('Choose Browse to read the catalog.');l.addWidget(self.browse_status)
         def metrics_page(self):
             l=self.page('Comparison');l.addWidget(QLabel('Same search on NVMe and USB • USB is read-only • one shadow at a time'))
-            self.metrics=QTextEdit();self.metrics.setReadOnly(True);l.addWidget(self.metrics,1)
+            self.comparison_status=QLabel('Checking comparison configuration…');self.comparison_status.setWordWrap(True);l.addWidget(self.comparison_status);self.metrics=QTextEdit();self.metrics.setReadOnly(True);l.addWidget(self.metrics,1)
             row=QHBoxLayout();row.addWidget(self.button('Refresh metrics',self.update_metrics));row.addWidget(self.button('Measure index footprint',self.measure_footprint));row.addWidget(self.button('Export safe metrics',self.export_metrics));row.addWidget(self.button('Reset metrics',self.reset_metrics));l.addLayout(row)
             self.footprint=QLabel('Footprint is measured on demand.');self.footprint.setWordWrap(True);l.addWidget(self.footprint)
             note=QLabel('Only aggregate timings, result counts and overlap are saved. No query history, filenames, snippets, hashes, IDs or per-search timestamps. Concurrent IO, cache warmth and differing index coverage affect timings; overlap measures agreement, not accuracy. Total primary latency includes freshness work. Index stages exclude query encoding/model startup (but include ranking); after repair, they describe the final pass. The USB index is never refreshed.');note.setWordWrap(True);l.addWidget(note)
@@ -190,8 +190,13 @@ def main(db=None):
                 if skips:lines.append('  '+', '.join(skips))
                 lines.append('')
             cfg=comparison.load()
-            if not cfg['usb_db']:lines.insert(0,'Choose the existing USB database in Settings to start comparisons.\n')
-            elif not cfg['enabled']:lines.insert(0,'Comparison is disabled.\n')
+            paired=sum(v.get('paired',0) for v in data['modes'].values())
+            skipped=sum(v.get('missing_target',0) for v in data['modes'].values())
+            if not cfg['enabled']:status='Comparison disabled. Enable cloning in Settings.'
+            elif not cfg['usb_db']:status=f'Comparison not running: USB database not configured. {int(skipped)} searches skipped. Choose the existing USB database in Settings and save.'
+            elif not Path(cfg['usb_db']).is_file():status='Comparison not running: configured USB database is unavailable. Check that the drive is mounted and the file exists.'
+            else:status=f'Comparison enabled • {int(paired)} completed pairs. New searches launch a read-only USB shadow; timings appear after both searches finish.'
+            self.comparison_status.setText(status)
             self.metrics.setPlainText('\n'.join(lines) or 'No completed comparisons yet. Search normally; this view updates automatically.')
         def measure_footprint(self):
             from runtime_paths import pinned_paths
@@ -253,6 +258,10 @@ def main(db=None):
         if 'Waiting for indexed keyword ranking' not in window.progress.text():return 1
         window.started=started
         if not window.usb_effective.text() or not window.usb_ann.placeholderText():return 1
+        saved=comparison.load();missing={**saved,'usb_db':''}
+        with __import__('unittest.mock',fromlist=['patch']).patch('comparison.load',return_value=missing):window.update_metrics()
+        if 'USB database not configured' not in window.comparison_status.text():return 1
+        window.update_metrics()
         def verify():
             if window.task:return
             if not window.results or window.outcome!='done' or 'Worker exited' not in window.console.toPlainText() or window.primary_paths['SEARCHFU_DB'].text()!=str(db):app.exit(1);return
