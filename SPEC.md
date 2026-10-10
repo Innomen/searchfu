@@ -415,3 +415,13 @@ eligible files. Never reissue rank queries with increasing OFFSET: duplicate
 chunks from long documents otherwise turn file deduplication into repeated
 ranking work. The long-document gate requires multiple chunk pages while
 issuing only one ranked query and returning both distinct files.
+
+Installed validation limitation (2026-10-10): owner-authorized keyword control
+searches completed on NVMe with 12 results in about 1.2 seconds after the cursor
+fix. The legacy USB copy still reached its 300-second hard limit, including an
+unscoped retry, and produced no completed pair. Folder-pinned scope admission is
+also incompatible with its missing filesystem metadata. Dashboard/control
+repair is verified; USB performance recovery is not. Do not treat synthetic
+test success, partial primary results, or a zero-hit unsupported scope as proof
+of a valid paired benchmark. Search must not silently rewrite the USB index to
+resolve these limitations. Actual attempts and their failures remain counted.
