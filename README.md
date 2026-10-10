@@ -379,6 +379,11 @@ a controlled drive comparison. To check stored inventories without exporting
 filenames, use `searchfu inventory-compare --comparison-target`. Its shared-path
 counts do not establish content equality.
 
+Use `--counts-only` for a quick inventory/size check or `--plan-only` for closed
+query-plan booleans. Overlap reads the USB inventory and probes the NVMe path
+index. Optional exact chunk counts have a separate 15-second diagnostic budget;
+`null` means unavailable, and the chunk-ID upper bound is not a row count.
+
 Use `searchfu replicate --comparison-target --wait` to explicitly copy the
 NVMe SQLite snapshot and matching caches to the configured USB target. It waits
 for an active comparison to finish, excludes cooperating index/cache writers,

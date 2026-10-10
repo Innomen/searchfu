@@ -40,11 +40,12 @@ def _signature(paths):
     return result
 
 
-def snapshot_matches(cfg):
+def snapshot_matches(cfg, primary_db=None):
     """Conservative replica freshness check; paths/stamps never leave the host."""
     try:
         if not cfg['usb_db']: return False
         source, target = configured_paths(cfg)
+        if primary_db is not None and Path(primary_db).resolve() != Path(source['db']).resolve(): return False
         manifest = json.loads(Path(str(target['db'])+'.replica.json').read_text())
         return manifest.get('version') == 1 and manifest.get('source') == _signature(source) and manifest.get('target') == _signature(target)
     except (OSError, ValueError, TypeError):

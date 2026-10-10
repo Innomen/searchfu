@@ -2,7 +2,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from index_comparison import compare
+from index_comparison import compare, overlap_plan
 
 
 class InventoryComparisonTests(unittest.TestCase):
@@ -16,11 +16,13 @@ class InventoryComparisonTests(unittest.TestCase):
                     c.execute('INSERT INTO chunks VALUES(1)')
             before = [p.read_bytes() for p in paths]
             result = compare(*paths)
+            self.assertEqual(overlap_plan(*paths), {'secondary_outer':True,'primary_index_lookup':True})
             self.assertEqual(result['shared_paths'], 1)
             self.assertEqual(result['primary_only_paths'], 1)
             self.assertEqual(result['secondary_only_paths'], 1)
             self.assertFalse(result['inventories_equal'])
             self.assertFalse(result['content_equality_checked'])
+            self.assertIsNone(result['secondary']['chunks'])
             self.assertNotIn('common', str(result))
             self.assertEqual(before, [p.read_bytes() for p in paths])
             with sqlite3.connect(paths[1]) as c:

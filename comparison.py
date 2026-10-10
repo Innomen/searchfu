@@ -202,7 +202,7 @@ def launch(db,query,options):
         diagnostics.record('comparison','legacy_scope_unsupported');record(m,'legacy_scope_unsupported');return None
     safe={k:v for k,v in options.items() if k not in ('models','reranker','cancelled')}
     from replication import snapshot_matches
-    payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m,'snapshot_matched':snapshot_matches(cfg)})+'\n'
+    payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m,'snapshot_matched':snapshot_matches(cfg,db)})+'\n'
     env={**os.environ,'SEARCHFU_SHADOW':'1','SEARCHFU_CUDA':'0','CUDA_VISIBLE_DEVICES':''}
     p=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--supervisor'],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True,env=env,start_new_session=True)
     try:p.stdin.write(payload);p.stdin.flush()
@@ -325,7 +325,8 @@ if __name__=='__main__':
                 cfg=load();cfg['usb_db']=str(args.set_usb_db.resolve());save(cfg)
             if args.reset:reset()
             out=report();cfg=load()
-            out['configuration']={'enabled':cfg['enabled'],'usb_configured':bool(cfg['usb_db']),'usb_available':bool(cfg['usb_db'] and Path(cfg['usb_db']).is_file()),'timeout_seconds':cfg['timeout_seconds']}
+            from replication import snapshot_matches
+            out['configuration']={'enabled':cfg['enabled'],'usb_configured':bool(cfg['usb_db']),'usb_available':bool(cfg['usb_db'] and Path(cfg['usb_db']).is_file()),'timeout_seconds':cfg['timeout_seconds'],'snapshot_matched':snapshot_matches(cfg)}
             if args.footprint:
                 from runtime_paths import pinned_paths
                 p=pinned_paths();out['footprint']={'nvme':footprint(p['SEARCHFU_DB'],p['SEARCHFU_ANN_DIR'],p['SEARCHFU_CANDIDATES_DIR'])}

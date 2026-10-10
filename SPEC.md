@@ -485,3 +485,16 @@ records source/target file stamps; changed databases or cache metadata invalidat
 freshness. Matched-snapshot counters require verified freshness at launch and
 finish plus primary refresh disabled. Missing markers and historical pairs are
 unverified; they remain experimental evidence, never retroactively matched.
+
+Installed inventory validation (2026-10-10): primary 2,332,628 files,
+secondary 705,720; all 705,720 secondary paths occur in primary, with
+1,626,908 primary-only paths and zero secondary-only paths. This establishes
+inventory inclusion, not stored-passage equality or indexing-event provenance.
+Primary database bytes 205,342,277,632 with 95,186,944 unused page bytes;
+secondary 134,874,275,840 with zero unused page bytes. The roughly 70 GB size
+gap is not explained by unused pages. Chunk-ID upper bounds are 47,100,964
+and 30,026,537; these are not exact chunk counts. Supplementary chunk counts
+use only compact complete indexes and a 15-second diagnostic budget, reporting
+null when unavailable. That diagnostic limit never applies to retrieval.
+The preceding unlimited experiment also overlapped diagnostic reads; retain
+its evidence without treating it as a controlled hardware benchmark.

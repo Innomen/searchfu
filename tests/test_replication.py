@@ -46,6 +46,7 @@ class ReplicationTests(unittest.TestCase):
                 cfg={'usb_db':str(dst['db'])}
                 with patch.object(replication,'configured_paths',return_value=(src,dst)):
                     self.assertTrue(replication.snapshot_matches(cfg))
+                    self.assertFalse(replication.snapshot_matches(cfg, root/'unrelated.db'))
                     c.execute("INSERT INTO evidence VALUES('newer authoritative evidence')");c.commit()
                     self.assertFalse(replication.snapshot_matches(cfg))
             finally:c.close()
