@@ -38,6 +38,9 @@ case "$cmd" in
   gui)
     exec "$PY" "$SCRIPT_DIR/gui.py" "$@"
     ;;
+  errors)
+    exec "$PY" "$SCRIPT_DIR/diagnostics.py" "$@"
+    ;;
   metrics)
     exec "$PY" "$SCRIPT_DIR/comparison.py" "$@"
     ;;

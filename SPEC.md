@@ -372,3 +372,12 @@ Comparison dashboard contract: an always-visible banner distinguishes disabled,
 unconfigured USB, unavailable USB and enabled states. Unconfigured searches
 show the aggregate missing-target count. Never present missing comparison output
 as a running benchmark. The native synthetic gate checks this blocker message.
+
+Diagnostic contract: diagnostics.py is the sole fixed-vocabulary error sink
+and validated export. Counters are bounded by the category vocabulary; no
+per-search records, timestamps or free-form strings. GUI callback/startup,
+search worker and comparison failure paths use it. Qt exception hooks must
+suppress raw tracebacks. Synthetic fixtures validate hostile exception objects,
+unknown stored data rejection, permissions, nonmutating reads and public shell
+export. User-selected USB locations persist only in private comparison settings;
+never bake personal mount paths into source or developer documentation.

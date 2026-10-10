@@ -6,6 +6,7 @@ short-lived CLI finishes. Primary retrieval never waits for the shadow.
 """
 from pathlib import Path
 import json, math, os, sqlite3, subprocess, sys, threading, time
+import diagnostics
 from contextlib import closing
 
 BUCKETS=(.05,.1,.25,.5,1,2,5,10,30,60,120,300)
@@ -120,10 +121,10 @@ def summary(event,first,refresh=False):
 def launch(db,query,options):
     m=mode(options)
     try:cfg=load()
-    except Exception:return None  # Broken optional configuration must not break search.
+    except Exception as exc:diagnostics.record('comparison','invalid_configuration',exc);return None  # Optional configuration must not break search.
     if not cfg['enabled']:return None
-    if not cfg['usb_db'] or not Path(cfg['usb_db']).is_file():record(m,'missing_target');return None
-    if Path(cfg['usb_db']).resolve()==Path(db).resolve():record(m,'same_target');return None
+    if not cfg['usb_db'] or not Path(cfg['usb_db']).is_file():diagnostics.record('comparison','missing_target');record(m,'missing_target');return None
+    if Path(cfg['usb_db']).resolve()==Path(db).resolve():diagnostics.record('comparison','same_target');record(m,'same_target');return None
     if options.get('reranker') is not None:record(m,'unsupported');return None
     safe={k:v for k,v in options.items() if k not in ('models','reranker','cancelled')}
     payload=json.dumps({'config':cfg,'query':query,'options':safe,'mode':m})+'\n'
@@ -166,6 +167,7 @@ def supervisor():
             if primary['outcome']!='paired' and child.poll() is None:child.kill()
             t.join()
             outcome=primary['outcome'] if primary['outcome']!='paired' else answer.get('outcome','shadow_failed')
+            if outcome in ('shadow_failed','shadow_timeout'):diagnostics.record('comparison',outcome)
             record(m,outcome,primary.get('primary'),answer.get('summary'))
         finally:
             if child.poll() is None:child.kill()
@@ -203,4 +205,4 @@ if __name__=='__main__':
                 p=pinned_paths();out['footprint']={'nvme':footprint(p['SEARCHFU_DB'],p['SEARCHFU_ANN_DIR'],p['SEARCHFU_CANDIDATES_DIR'])}
                 if cfg['usb_db']:out['footprint']['usb']=footprint(cfg['usb_db'],cfg['usb_ann'] or str(Path(cfg['usb_db']).parent/'ann'),cfg['usb_candidates'] or str(Path(cfg['usb_db']).parent/'candidates'))
             print(json.dumps(out,indent=2))
-    except Exception:sys.exit(1)  # No exception details or private request in logs.
+    except Exception as exc:diagnostics.record('comparison','operation_failed',exc);sys.exit(1)  # No private exception details.

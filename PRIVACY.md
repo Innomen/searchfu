@@ -53,3 +53,12 @@ settings and metric paths are rejected if they resolve inside application source
 health surface, including when run against installed artifacts. It must not be
 extended with paths, query text, scope names or IDs. Scope/path/content inspection
 remains private even though timing and footprint are safe to expose.
+
+Privacy-safe diagnostics use errors.sqlite3 outside source, mode 0600, with
+bounded fixed-category counters only. No raw exception text, traceback, paths,
+queries, result IDs, timestamps or session metadata are accepted. Exception
+classification checks types without formatting the exception. GUI callback
+errors use a sanitized excepthook; search subprocess stderr remains suppressed.
+`searchfu errors --agent` exports only validated category names and counts.
+Unexpected stored values are discarded. Synthetic metrics overrides isolate
+diagnostic storage too; tests must not contribute real-use error counts.

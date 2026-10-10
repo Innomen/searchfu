@@ -332,3 +332,10 @@ appear. Activity is not saved and excludes query text and filenames. Settings
 shows the active primary database and cache folders. USB comparison requires an
 explicit existing database; optional cache overrides otherwise use `ann` and
 `candidates` beside that database, with effective paths shown in the form.
+
+Use the GUI **Diagnostics** tab or `searchfu errors --agent` for a privacy-safe
+error log. The log stores only fixed component/error categories and counts in
+`~/.local/state/searchfu/errors.sqlite3`. It captures GUI/worker failures, invalid
+comparison settings, missing USB targets and shadow failures/timeouts. No query,
+filename, result, raw exception or traceback is retained; old failures cannot
+be recovered retroactively. A logging failure never interrupts search.

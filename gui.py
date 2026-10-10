@@ -3,6 +3,7 @@
 from pathlib import Path
 import json, os, signal, sqlite3, subprocess, sys, threading, time
 from contextlib import closing
+import diagnostics
 
 
 def browse(db, text='', scope='', after='', limit=100, cancelled=None):
@@ -35,6 +36,9 @@ def main(db=None):
     import comparison, collections_config
     from runtime_paths import activate
     db=Path(db or activate()['SEARCHFU_DB'])
+    # Qt callback failures must not emit raw exception text or traceback locals.
+    def safe_exception(_kind,exc,_traceback):diagnostics.record('gui','operation_failed',exc)
+    sys.excepthook=safe_exception
     class Task(QThread):
         event=Signal(dict);failed=Signal();terminal=Signal()
         def __init__(self,request):super().__init__();self.request=request;self.process=None;self.stop=threading.Event()
@@ -46,8 +50,8 @@ def main(db=None):
                 if self.stop.is_set():self.process.terminate()
                 for line in self.process.stdout:
                     self.event.emit(json.loads(line))
-                if self.process.wait()!=0 and not self.stop.is_set():self.failed.emit()
-            except Exception:self.failed.emit()
+                if self.process.wait()!=0 and not self.stop.is_set():diagnostics.record('gui','worker_failed');self.failed.emit()
+            except Exception as exc:diagnostics.record('gui','operation_failed',exc);self.failed.emit()
             finally:
                 if self.process and self.process.poll() is None:self.process.terminate();self.process.wait()
                 self.terminal.emit()
@@ -59,12 +63,12 @@ def main(db=None):
         def __init__(self,fn):super().__init__();self.fn=fn
         def run(self):
             try:self.result.emit(self.fn(lambda:self.isInterruptionRequested()))
-            except Exception:self.failed.emit()
+            except Exception as exc:diagnostics.record('catalog','operation_failed',exc);self.failed.emit()
     class Window(QMainWindow):
         def __init__(self):
             super().__init__();self.setWindowTitle('Searchfu');self.resize(1120,780);self.task=None;self.started=0;self.phase='Ready';self.outcome=None;self.results=[];self.cursor='';self.browse_rows=[];self.local_tasks=[];self.browse_key=None
             self.tabs=QTabWidget();self.setCentralWidget(self.tabs)
-            self.search_page();self.browse_page();self.metrics_page();self.settings_page()
+            self.search_page();self.browse_page();self.metrics_page();self.settings_page();self.diagnostics_page()
             self.tabs.currentChanged.connect(self.tab_changed);self.reload_scopes();self.metrics_timer=QTimer(self);self.metrics_timer.timeout.connect(self.update_metrics);self.metrics_timer.start(5000);self.activity_timer=QTimer(self);self.activity_timer.timeout.connect(self.activity_tick);self.activity_timer.start(250);self.update_metrics()
         def page(self,title):
             page=QWidget();layout=QVBoxLayout(page);self.tabs.addTab(page,title);return layout
@@ -92,6 +96,13 @@ def main(db=None):
             row=QHBoxLayout();row.addWidget(self.button('Refresh metrics',self.update_metrics));row.addWidget(self.button('Measure index footprint',self.measure_footprint));row.addWidget(self.button('Export safe metrics',self.export_metrics));row.addWidget(self.button('Reset metrics',self.reset_metrics));l.addLayout(row)
             self.footprint=QLabel('Footprint is measured on demand.');self.footprint.setWordWrap(True);l.addWidget(self.footprint)
             note=QLabel('Only aggregate timings, result counts and overlap are saved. No query history, filenames, snippets, hashes, IDs or per-search timestamps. Concurrent IO, cache warmth and differing index coverage affect timings; overlap measures agreement, not accuracy. Total primary latency includes freshness work. Index stages exclude query encoding/model startup (but include ranking); after repair, they describe the final pass. The USB index is never refreshed.');note.setWordWrap(True);l.addWidget(note)
+        def diagnostics_page(self):
+            l=self.page('Diagnostics');note=QLabel('Privacy-safe error log: fixed categories and counts only. No queries, filenames, results, raw exceptions, tracebacks or session information.');note.setWordWrap(True);l.addWidget(note)
+            self.error_view=QTextEdit();self.error_view.setReadOnly(True);l.addWidget(self.error_view,1);l.addWidget(self.button('Refresh error log',self.update_errors));self.update_errors()
+        def update_errors(self):
+            try:
+                rows=diagnostics.report()['errors'];self.error_view.setPlainText('\n'.join(f"{r['component']} • {r['code']} • {r['category']} • {r['count']} occurrences" for r in rows) or 'No errors recorded. Logging starts with this version.')
+            except Exception:self.error_view.setPlainText('Error log unavailable.')
         def settings_page(self):
             l=self.page('Settings')
             from runtime_paths import pinned_paths
@@ -196,7 +207,7 @@ def main(db=None):
             elif not cfg['usb_db']:status=f'Comparison not running: USB database not configured. {int(skipped)} searches skipped. Choose the existing USB database in Settings and save.'
             elif not Path(cfg['usb_db']).is_file():status='Comparison not running: configured USB database is unavailable. Check that the drive is mounted and the file exists.'
             else:status=f'Comparison enabled • {int(paired)} completed pairs. New searches launch a read-only USB shadow; timings appear after both searches finish.'
-            self.comparison_status.setText(status)
+            self.comparison_status.setText(status);self.update_errors()
             self.metrics.setPlainText('\n'.join(lines) or 'No completed comparisons yet. Search normally; this view updates automatically.')
         def measure_footprint(self):
             from runtime_paths import pinned_paths
@@ -216,7 +227,7 @@ def main(db=None):
         def save_settings(self):
             try:
                 comparison.save({'enabled':self.enabled.isChecked(),'usb_db':self.usb_db.text().strip(),'usb_ann':self.usb_ann.text().strip(),'usb_candidates':self.usb_candidates.text().strip(),'timeout_seconds':self.timeout.value()});self.update_metrics();QMessageBox.information(self,'Saved','Comparison settings saved. New searches use these settings.')
-            except Exception:QMessageBox.warning(self,'Settings','Use absolute paths and a valid timeout.')
+            except Exception as exc:diagnostics.record('settings','invalid_configuration',exc);QMessageBox.warning(self,'Settings','Use absolute paths and a valid timeout.')
         def reload_scopes(self):
             data=collections_config.load()['collections']
             for combo in (self.scope,self.browse_scope):
@@ -276,5 +287,6 @@ if __name__=='__main__':
     try:
         if '--worker' in sys.argv:worker()
         else:sys.exit(main())
-    except Exception:
+    except Exception as exc:
+        diagnostics.record('search_worker' if '--worker' in sys.argv else 'gui','operation_failed',exc)
         print('Searchfu GUI operation failed.',file=sys.stderr);sys.exit(1)
