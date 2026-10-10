@@ -6,6 +6,17 @@ from retrieval import retrieve, _lexical
 from search import connect
 
 class LegacyKeywordTests(unittest.TestCase):
+    def test_long_document_pages_do_not_repeat_ranked_query(self):
+        with tempfile.TemporaryDirectory() as root:
+            db,_,_=fixture(Path(root),rows=1001,files=2)
+            with sqlite3.connect(db) as c:
+                c.execute('UPDATE chunks SET file_id=1 WHERE id<1001')
+                c.execute('UPDATE chunks SET file_id=2,text=? WHERE id=1001',('synthetic '+'ordinary '*100,))
+                statements=[];c.set_trace_callback(statements.append)
+                result=_lexical(c,'synthetic',2,[],[],False)
+                self.assertEqual(len(result),2)
+                ranked=[s for s in statements if 'ORDER BY chunks_fts.rank' in s]
+                self.assertEqual(len(ranked),1)
     def test_legacy_readonly_query_no_migration(self):
         with tempfile.TemporaryDirectory() as root:
             db,_,_=fixture(Path(root),rows=20,files=5)

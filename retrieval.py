@@ -44,19 +44,21 @@ def _lexical(c, query, limit, where, params, require_all):
     sql = ("SELECT c.id,f.path,f.kind,f.mtime,f.mime,chunks_fts.rank "
            "FROM chunks_fts JOIN chunks c ON c.id=chunks_fts.rowid "
            "JOIN files f ON f.id=c.file_id WHERE chunks_fts MATCH ?" + _extra(where) +
-           " AND chunks_fts.rank MATCH 'bm25()' ORDER BY chunks_fts.rank LIMIT ?")
+           " AND chunks_fts.rank MATCH 'bm25()' ORDER BY chunks_fts.rank")
     best = {}
-    # Fetch in pages: long files must not consume every candidate slot.
-    # The bound applies to files; OFFSET is only over the FTS index.
-    offset = 0
-    while len(best) < limit:
-        rows = list(c.execute(sql + " OFFSET ?", [expression] + params + [max(300, limit*2), offset]))
-        if not rows: break
-        for cid,p,k,mt,mime,bm in rows:
-            if not corpus_filter.is_junk(p) and p not in best:
-                best[p] = (cid,p,k,mt,mime,-float(bm))
-                if len(best) == limit: break
-        offset += len(rows)
+    # One ranked cursor: OFFSET queries repeatedly rerank the same matches.
+    # The file bound stays intact when long documents occupy many chunk pages.
+    # Closing early retains FTS5's native rank-order optimization without LIMIT.
+    cursor=c.execute(sql,[expression]+params)
+    try:
+        while len(best) < limit:
+            rows=cursor.fetchmany(max(300,limit*2))
+            if not rows:break
+            for cid,p,k,mt,mime,bm in rows:
+                if not corpus_filter.is_junk(p) and p not in best:
+                    best[p] = (cid,p,k,mt,mime,-float(bm))
+                    if len(best) == limit:break
+    finally:cursor.close()
     return best
 
 

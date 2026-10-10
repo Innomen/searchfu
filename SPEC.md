@@ -410,3 +410,8 @@ Comparison admission checks legacy filesystem metadata before launching a pinned
 scope. Unsupported scopes produce a fixed outcome and visible explanation,
 never a zero-hit "USB faster" measurement. Do not silently broaden scope or
 rebuild the read-only USB copy; an explicit unscoped search remains supported.
+Keyword pagination owns one ranked cursor and closes it after enough distinct
+eligible files. Never reissue rank queries with increasing OFFSET: duplicate
+chunks from long documents otherwise turn file deduplication into repeated
+ranking work. The long-document gate requires multiple chunk pages while
+issuing only one ranked query and returning both distinct files.
