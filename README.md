@@ -357,3 +357,11 @@ attempt statistics; neither implies content relevance or source coverage.
 Older USB databases are searched through temporary compatibility views;
 search never migrates or writes the USB database. Keyword ranking uses the
 native FTS rank ordering to avoid sorting joined matches before first results.
+
+To explicitly upgrade the configured USB catalog without a content recrawl,
+run `searchfu metadata-upgrade --comparison-target`. It adds missing metadata
+fields and stats already indexed paths in resumable batches, preserving stored
+text, embeddings and cache identity. Reports contain only counts and timings.
+Unavailable paths remain unknown and can still prevent a complete folder-pinned
+comparison. This command writes metadata; ordinary shadow searches remain
+read-only. It does not rebuild the full-text index or address USB query latency.

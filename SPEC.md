@@ -447,3 +447,16 @@ batches. Unknown paths remain NULL; hashes remain unknown. Comparison admission
 rejects migrated pinned scopes with unknown rows within the selected roots.
 Rerunning skips resolved rows. Writer/cache/comparison locks prevent overlap.
 No text extraction, embedding, FTS rebuild or matrix generation occurs.
+
+Installed metadata validation (2026-10-10): the explicit USB upgrade checked
+705,720 catalog files in 732 seconds, updated device metadata for 688,121,
+and retained 17,599 unavailable paths as unknown. Existing cache identity was
+preserved. Archive keyword retest returned 12 primary results in 1.84 seconds,
+but comparison correctly rejected that scope because unknown archive rows
+remain. A successful schema operation is not complete filesystem coverage or
+proof of USB retrieval performance. Do not delete stored evidence or guess
+devices merely to make the comparison pass.
+The subsequent unscoped keyword retest returned 12 primary results in 0.86
+seconds, while the upgraded USB index again reached the 300-second timeout.
+The supervisor exited and active ownership cleared; no valid paired benchmark
+was produced. Metadata migration therefore did not resolve USB search latency.
