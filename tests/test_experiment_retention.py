@@ -71,3 +71,26 @@ comparison.supervisor()
             self.assertIsNone(options['max_seconds'])
             yield {'stage':'done','elapsed_seconds':1,'results':[]}
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'SEARCHFU_METRICS_DB':str(Path(directory)/'metrics.sqlite3')}),patch('sys.stdin',io.StringIO(json.dumps(request))),patch('sys.stdout',io.StringIO()),patch('retrieval.retrieve',retrieve):comparison.shadow()
+
+    def test_unlimited_supervisor_remains_cancelable_after_primary_finishes(self):
+        import time
+        child="import sys,json,time;sys.stdin.read();print(json.dumps({'summary':{'seconds':.1,'first_seconds':.1,'count':3,'ids':['a','b','c']}}),flush=True);time.sleep(30)"
+        program="import comparison,subprocess,sys;original=subprocess.Popen;comparison.subprocess.Popen=lambda args,**kw:original([sys.executable,'-c',"+repr(child)+"],**kw);comparison.supervisor()"
+        with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'SEARCHFU_METRICS_DB':str(Path(directory)/'metrics.sqlite3')}):
+            request={'config':{'enabled':True,'usb_db':'/synthetic/index','usb_ann':'','usb_candidates':'','timeout_seconds':0},'query':'synthetic','options':{},'mode':'keyword'}
+            primary={'outcome':'paired','primary':{'seconds':.1,'first_seconds':.1,'count':3,'ids':['a','b','c']}}
+            process=subprocess.Popen([sys.executable,'-c',program],stdin=subprocess.PIPE,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,text=True)
+            try:
+                process.stdin.write(json.dumps(request)+'\n'+json.dumps(primary)+'\n');process.stdin.close()
+                deadline=time.monotonic()+3
+                while comparison.report()['modes'].get('keyword',{}).get('shadow_observed_peak_results',0)<3:
+                    if time.monotonic()>deadline:self.fail('Synthetic partial event did not arrive')
+                    time.sleep(.05)
+                self.assertTrue(comparison.cancel_active())
+                self.assertEqual(process.wait(timeout=7),0)
+                values=comparison.report()['modes']['keyword']
+                self.assertEqual(values['shadow_cancelled'],1)
+                self.assertEqual(values['shadow_partial_count_sum'],3)
+                self.assertFalse(comparison.activity()['active'])
+            finally:
+                if process.poll() is None:process.kill();process.wait()
