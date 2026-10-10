@@ -425,3 +425,17 @@ repair is verified; USB performance recovery is not. Do not treat synthetic
 test success, partial primary results, or a zero-hit unsupported scope as proof
 of a valid paired benchmark. Search must not silently rewrite the USB index to
 resolve these limitations. Actual attempts and their failures remain counted.
+
+Legacy schema upgrades are distinct from corpus recrawls (2026-10-10).
+Missing optional columns and bookkeeping can be migrated while retaining stored
+chunks, embeddings and FTS data. Filesystem-pinned scopes additionally require
+valid source-device metadata: adding a NULL column alone does not establish
+coverage. An explicit metadata-only repair can stat already cataloged paths
+without discovering directories, extracting content or running embeddings.
+Unknown hashes must remain unknown rather than be fabricated from chunk text.
+Preserve or deliberately reconcile ANN identity when adding index_state;
+creating a new identity must not accidentally invalidate a reusable cache.
+Index creation/backfills can incur database I/O, but do not require source
+re-extraction. This compatibility work does not establish a remedy for the
+separate unscoped USB search timeout. Never prescribe a full recrawl merely
+because a legacy index lacks newer optional metadata.
