@@ -352,3 +352,18 @@ setting SEARCHFU_DB. Eligibility requires the installed primary, or explicit
 comparison-config AND metrics-path overrides together for isolated tests.
 This gate prevents old CLI fixtures from reading user settings or contaminating
 real-use counters. Test the negative boundary, not only positive shadow pairing.
+
+
+Desktop progress contract (2026-10-10): the worker reports startup and the
+initial filename/keyword scan before entering retrieval. The GUI independently
+updates elapsed time while SQL has not yielded; it never invents a completion
+percentage. Its bounded, unsaved activity console uses fixed phase names and
+counts only, never raw stderr, queries, paths or snippets. Worker exit and
+cancellation remain terminal acknowledgements, not submission acknowledgements.
+Settings displays the authoritative primary path family read-only, explicitly
+marks a missing USB target, and shows effective derived USB cache paths alongside
+optional overrides. Never discover or guess a comparison database. Synthetic
+worker and native GUI gates cover pre-SQL notification, stalled-stage status,
+terminal console state and primary path display. An early notification does
+not establish faster retrieval; archive-scale cold/common-term FTS remains a
+separate performance limitation.

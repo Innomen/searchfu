@@ -324,3 +324,11 @@ telemetry. Settings live in `XDG_CONFIG_HOME/searchfu/comparison.json` and metri
 in `XDG_STATE_HOME/searchfu/metrics.sqlite3`, both outside source and mode 0600.
 The GUI uses local Qt widgets, no web server or third-party assets. It stores no
 query history. Indexing remains an explicit CLI operation.
+
+The GUI Search tab includes a local activity console with stage names, elapsed
+time and result counts. It continues updating while the first keyword ranking
+is running; common terms on a cold large index may take time before results
+appear. Activity is not saved and excludes query text and filenames. Settings
+shows the active primary database and cache folders. USB comparison requires an
+explicit existing database; optional cache overrides otherwise use `ann` and
+`candidates` beside that database, with effective paths shown in the form.

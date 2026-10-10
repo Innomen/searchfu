@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Searchfu desktop client. Private results stay in local widgets and pipes."""
 from pathlib import Path
-import json, os, signal, sqlite3, subprocess, sys, threading
+import json, os, signal, sqlite3, subprocess, sys, threading, time
 from contextlib import closing
 
 
@@ -22,6 +22,8 @@ def worker():
     stop=threading.Event()
     signal.signal(signal.SIGTERM,lambda *_:stop.set())
     signal.signal(signal.SIGINT,lambda *_:stop.set())
+    print(json.dumps({'stage':'opening','complete':False}),flush=True)
+    print(json.dumps({'stage':'filename_scan' if request['options'].get('names_only') else 'keyword_scan','complete':False}),flush=True)
     for e in retrieve(request['db'],request['query'],cancelled=stop.is_set,**request['options']):
         print(json.dumps(e),flush=True)
 
@@ -60,10 +62,10 @@ def main(db=None):
             except Exception:self.failed.emit()
     class Window(QMainWindow):
         def __init__(self):
-            super().__init__();self.setWindowTitle('Searchfu');self.resize(1120,780);self.task=None;self.results=[];self.cursor='';self.browse_rows=[];self.local_tasks=[];self.browse_key=None
+            super().__init__();self.setWindowTitle('Searchfu');self.resize(1120,780);self.task=None;self.started=0;self.phase='Ready';self.outcome=None;self.results=[];self.cursor='';self.browse_rows=[];self.local_tasks=[];self.browse_key=None
             self.tabs=QTabWidget();self.setCentralWidget(self.tabs)
             self.search_page();self.browse_page();self.metrics_page();self.settings_page()
-            self.tabs.currentChanged.connect(self.tab_changed);self.reload_scopes();self.metrics_timer=QTimer(self);self.metrics_timer.timeout.connect(self.update_metrics);self.metrics_timer.start(5000)
+            self.tabs.currentChanged.connect(self.tab_changed);self.reload_scopes();self.metrics_timer=QTimer(self);self.metrics_timer.timeout.connect(self.update_metrics);self.metrics_timer.start(5000);self.activity_timer=QTimer(self);self.activity_timer.timeout.connect(self.activity_tick);self.activity_timer.start(250)
         def page(self,title):
             page=QWidget();layout=QVBoxLayout(page);self.tabs.addTab(page,title);return layout
         def button(self,text,handler):
@@ -78,7 +80,7 @@ def main(db=None):
             l.addLayout(row);self.progress=QLabel('Ready. Queries and results stay on this computer.');l.addWidget(self.progress)
             split=QSplitter(Qt.Vertical);self.table=QTableWidget(0,3);self.table.setHorizontalHeaderLabels(['File','Match','Score']);self.table.setSelectionBehavior(QTableWidget.SelectRows);self.table.setEditTriggers(QTableWidget.NoEditTriggers);self.table.horizontalHeader().setStretchLastSection(True);self.table.setColumnWidth(0,720)
             self.table.itemSelectionChanged.connect(self.preview_result);self.table.cellDoubleClicked.connect(lambda *_:self.open_result())
-            self.preview=QTextEdit();self.preview.setReadOnly(True);split.addWidget(self.table);split.addWidget(self.preview);l.addWidget(split,1);l.addWidget(self.button('Open selected file',self.open_result))
+            self.preview=QTextEdit();self.preview.setReadOnly(True);split.addWidget(self.table);split.addWidget(self.preview);l.addWidget(split,1);l.addWidget(self.button('Open selected file',self.open_result));l.addWidget(QLabel('Activity console • stages and counts only • not saved'));self.console=QTextEdit();self.console.setReadOnly(True);self.console.setMaximumHeight(130);self.console.document().setMaximumBlockCount(100);l.addWidget(self.console)
         def browse_page(self):
             l=self.page('Browse index');l.addWidget(QLabel('Browse stored filenames without walking your drives.'))
             row=QHBoxLayout();self.browse_filter=QLineEdit();self.browse_filter.setPlaceholderText('Filter stored paths…');self.browse_filter.returnPressed.connect(self.browse_reset);self.browse_scope=QComboBox();row.addWidget(self.browse_filter,1);row.addWidget(self.browse_scope);row.addWidget(self.button('Browse',self.browse_reset));l.addLayout(row)
@@ -91,25 +93,49 @@ def main(db=None):
             self.footprint=QLabel('Footprint is measured on demand.');self.footprint.setWordWrap(True);l.addWidget(self.footprint)
             note=QLabel('Only aggregate timings, result counts and overlap are saved. No query history, filenames, snippets, hashes, IDs or per-search timestamps. Concurrent IO, cache warmth and differing index coverage affect timings; overlap measures agreement, not accuracy. Total primary latency includes freshness work. Index stages exclude query encoding/model startup (but include ranking); after repair, they describe the final pass. The USB index is never refreshed.');note.setWordWrap(True);l.addWidget(note)
         def settings_page(self):
-            l=self.page('Settings');box=QGroupBox('Search comparison');form=QFormLayout(box)
+            l=self.page('Settings')
+            from runtime_paths import pinned_paths
+            primary=pinned_paths();box=QGroupBox('Active primary index (NVMe)');form=QFormLayout(box)
+            self.primary_paths={}
+            for label,key in [('Database','SEARCHFU_DB'),('Matrix folder','SEARCHFU_ANN_DIR'),('Candidate folder','SEARCHFU_CANDIDATES_DIR')]:
+                w=QLineEdit(str(db) if key=='SEARCHFU_DB' else primary[key]);w.setReadOnly(True);self.primary_paths[key]=w;form.addRow(label,w)
+            l.addWidget(box);box=QGroupBox('Search comparison');form=QFormLayout(box)
             self.enabled=QCheckBox('Clone searches to USB');self.usb_db=QLineEdit();self.usb_ann=QLineEdit();self.usb_candidates=QLineEdit();self.timeout=QSpinBox();self.timeout.setRange(1,300)
             form.addRow(self.enabled)
             for label,w,directory in [('USB database',self.usb_db,False),('USB matrix folder',self.usb_ann,True),('USB candidate folder',self.usb_candidates,True)]:
                 row=QHBoxLayout();row.addWidget(w);row.addWidget(self.button('Choose…',lambda _=False,w=w,d=directory:self.pick(w,d)));form.addRow(label,row)
-            form.addRow('Shadow timeout (seconds)',self.timeout);form.addRow(self.button('Save comparison settings',self.save_settings));l.addWidget(box)
-            cfg=comparison.load();self.enabled.setChecked(cfg['enabled']);self.usb_db.setText(cfg['usb_db']);self.usb_ann.setText(cfg['usb_ann']);self.usb_candidates.setText(cfg['usb_candidates']);self.timeout.setValue(int(cfg['timeout_seconds']))
+            self.usb_db.setPlaceholderText('Not configured — choose the existing USB database');self.usb_db.textChanged.connect(self.usb_defaults);self.usb_ann.textChanged.connect(self.usb_defaults);self.usb_candidates.textChanged.connect(self.usb_defaults);self.usb_effective=QLabel();self.usb_effective.setWordWrap(True);form.addRow('Effective USB paths',self.usb_effective);form.addRow('Shadow timeout (seconds)',self.timeout);form.addRow(self.button('Save comparison settings',self.save_settings));l.addWidget(box)
+            cfg=comparison.load();self.enabled.setChecked(cfg['enabled']);self.usb_db.setText(cfg['usb_db']);self.usb_ann.setText(cfg['usb_ann']);self.usb_candidates.setText(cfg['usb_candidates']);self.timeout.setValue(int(cfg['timeout_seconds']));self.usb_defaults()
             box=QGroupBox('Folder / collection views');form=QFormLayout(box);self.edit_scope=QComboBox();self.edit_scope.currentIndexChanged.connect(self.edit_collection);self.scope_name=QLineEdit();self.scope_root=QLineEdit();self.priority=QSpinBox();self.priority.setRange(-10000,10000);self.priority.setValue(100);form.addRow('Existing view',self.edit_scope);form.addRow('Name',self.scope_name)
             row=QHBoxLayout();row.addWidget(self.scope_root);row.addWidget(self.button('Choose…',lambda:self.pick(self.scope_root,True)));form.addRow('Folder',row);form.addRow('Priority (lower first)',self.priority);form.addRow(self.button('Save folder view',self.save_collection));form.addRow(self.button('Delete selected view',self.delete_collection));l.addWidget(box)
             note=QLabel('Views filter existing indexed paths. Adding a view does not index its folder or make missing content searchable. Index builds remain explicit CLI operations. NVMe remains the primary database.');note.setWordWrap(True);l.addWidget(note);l.addStretch()
+        def usb_defaults(self):
+            value=self.usb_db.text().strip()
+            parent=Path(value).parent if value else None
+            self.usb_ann.setPlaceholderText(str(parent/'ann') if parent else 'Uses ann beside the selected database')
+            self.usb_candidates.setPlaceholderText(str(parent/'candidates') if parent else 'Uses candidates beside the selected database')
+            self.usb_effective.setText(('Matrix: '+(self.usb_ann.text().strip() or str(parent/'ann'))+'\nCandidates: '+(self.usb_candidates.text().strip() or str(parent/'candidates'))) if parent else 'USB comparison is unavailable until an existing database is selected. Primary searches still use NVMe.')
+        def activity_tick(self):
+            if not self.task:return
+            elapsed=time.monotonic()-self.started
+            note=' • Waiting for indexed keyword ranking; common terms and cold disks can be slow.' if self.phase=='keyword_scan' and elapsed>=10 else ''
+            self.progress.setText(f'{self.phase.replace("_"," ").capitalize()} • {elapsed:.1f}s elapsed • {len(self.results)} results'+note)
+        def search_failed(self):
+            self.outcome='failed';self.phase='failed';self.console.append('Search failed. No raw error output retained.');self.progress.setText('Search failed. Check index availability and settings.')
         def pick(self,w,directory):
             value=QFileDialog.getExistingDirectory(self,'Choose index folder') if directory else QFileDialog.getOpenFileName(self,'Choose existing USB database','','SQLite databases (*.sqlite3 *.sqlite *.db);;All files (*)')[0]
             if value:w.setText(value)
         def start_search(self):
             if self.task or not self.query.text().strip():return
-            self.results=[];self.table.setRowCount(0);self.preview.clear();self.go.setEnabled(False);self.cancel_button.setEnabled(True)
+            self.started=time.monotonic();self.phase='starting';self.outcome=None;self.console.clear();self.console.append('Starting local index search.');self.results=[];self.table.setRowCount(0);self.preview.clear();self.go.setEnabled(False);self.cancel_button.setEnabled(True)
             name=self.mode.currentText();options={'top_k':self.top.value(),'scopes':[self.scope.currentData()] if self.scope.currentData() else [],'fts_only':name=='Keywords','names_only':name=='Filenames','deep':name=='Deep','early':True,'refresh':self.refresh.isChecked(),'max_seconds':300}
-            self.task=Task({'db':str(db),'query':self.query.text(),'options':options});self.task.event.connect(self.search_event);self.task.failed.connect(lambda:self.progress.setText('Search failed. Check index availability and settings.'));self.task.finished.connect(self.search_finished);self.progress.setText('Starting…');self.task.start()
+            self.task=Task({'db':str(db),'query':self.query.text(),'options':options});self.task.event.connect(self.search_event);self.task.failed.connect(self.search_failed);self.task.finished.connect(self.search_finished);self.progress.setText('Starting…');self.task.start()
         def search_event(self,e):
+            # Closed console vocabulary: never echo scope names, errors, queries or paths.
+            stages={'opening','keyword_scan','filename_scan','keyword','encoding','candidate','candidates','semantic','quantized','full_precision','refine','refined','rerank','reranked','reranked_early','refresh','done','cancelled','deep'}
+            self.phase=e['stage'] if e.get('stage') in stages else 'working'
+            if self.phase in ('done','cancelled'):self.outcome=self.phase
+            self.console.append(f'{time.monotonic()-self.started:.1f}s • {self.phase.replace("_"," ")} • {len(e.get("results",self.results))} results')
             self.progress.setText(f"{e['stage'].capitalize()} • {e.get('elapsed_seconds',0):.2f}s • {len(e.get('results',self.results))} results"+(f" • {e.get('coverage','')}" if e.get('coverage') else ''))
             if 'results' not in e:return
             self.results=e['results'];self.table.setRowCount(len(self.results))
@@ -118,9 +144,12 @@ def main(db=None):
         def search_finished(self):
             task=self.task;self.task=None;self.go.setEnabled(True);self.cancel_button.setEnabled(False)
             if task:task.deleteLater()
+            if self.outcome is None:self.outcome='cancelled' if task and task.stop.is_set() else 'failed'
+            self.progress.setText(f'{self.outcome.capitalize()} • {time.monotonic()-self.started:.1f}s elapsed • {len(self.results)} results')
+            self.console.append('Worker exited • '+self.outcome)
             self.update_metrics()
         def cancel_search(self):
-            if self.task:self.task.cancel();self.progress.setText('Cancelling… waiting for workers to exit.')
+            if self.task:self.phase='cancelling';self.task.cancel();self.console.append('Cancellation requested; waiting for worker exit.');self.progress.setText('Cancelling… waiting for workers to exit.')
         def preview_result(self):
             i=self.table.currentRow()
             if 0<=i<len(self.results):self.preview.setPlainText(self.results[i].get('snippet') or 'Filename-only match; text is not indexed.')
@@ -219,9 +248,14 @@ def main(db=None):
     if '--smoke-test' in sys.argv:
         # Tests supply synthetic DB/config; no real windows or content inspected.
         window.query.setText('synthetic');window.mode.setCurrentText('Keywords');window.refresh.setChecked(False);window.start_search()
+        # Exercise a stalled first SQL stage without a real slow/private query.
+        started=window.started;window.started-=12;window.phase='keyword_scan';window.activity_tick()
+        if 'Waiting for indexed keyword ranking' not in window.progress.text():return 1
+        window.started=started
+        if not window.usb_effective.text() or not window.usb_ann.placeholderText():return 1
         def verify():
             if window.task:return
-            if not window.results:app.exit(1);return
+            if not window.results or window.outcome!='done' or 'Worker exited' not in window.console.toPlainText() or window.primary_paths['SEARCHFU_DB'].text()!=str(db):app.exit(1);return
             if not window.browse_rows:
                 if not window.local_tasks:window.browse_reset()
                 return

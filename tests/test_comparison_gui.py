@@ -109,6 +109,19 @@ comparison.supervisor()
         p=comparison.launch(self.db,'synthetic',{'fts_only':True,'refresh':False})
         comparison.finish(p,'cancelled');self.wait_metric('cancelled');p.wait(timeout=5)
         self.assertEqual(p.returncode,0)
+    def test_worker_reports_scan_before_blocking_retrieval(self):
+        import io, gui
+        output=io.StringIO()
+        request={'db':str(self.db),'query':'private synthetic phrase','options':{'fts_only':True}}
+        def slow_retrieval(*args,**kwargs):
+            # These notifications must already be available before any SQL work.
+            events=[json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([e['stage'] for e in events],['opening','keyword_scan'])
+            self.assertNotIn(request['query'],output.getvalue())
+            self.assertNotIn(str(self.db),output.getvalue())
+            yield {'stage':'done','results':[]}
+        with patch('sys.stdin',io.StringIO(json.dumps(request))),patch('sys.stdout',output),patch('signal.signal'),patch('retrieval.retrieve',slow_retrieval):gui.worker()
+
     def test_installed_shell_flags_and_native_gui_actual_search(self):
         # Pin shell to fixtures exactly as installed launcher does.
         env={**os.environ,'SEARCHFU_PY':sys.executable,'SEARCHFU_DIR':str(self.db.parent),'SEARCHFU_CANDIDATES_DIR':str(self.db.parent/'candidates')}
