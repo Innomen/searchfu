@@ -212,7 +212,7 @@ def main(db=None):
             elif not cfg['usb_db']:status=f'Comparison not running: USB database not configured. {int(skipped)} searches skipped. Choose the existing USB database in Settings and save.'
             elif not Path(cfg['usb_db']).is_file():status='Comparison not running: configured USB database is unavailable. Check that the drive is mounted and the file exists.'
             else:status=f"{'Comparison running — waiting for both searches to finish' if data.get('activity',{}).get('active') else 'Comparison ready'} • {int(paired)} completed pairs. NVMe timing is recorded even when pairing fails."
-            if any(v.get('legacy_scope_unsupported') for v in data['modes'].values()):status+=' Older USB index lacks metadata for filesystem-pinned folder filters. Use Entire index on both drives for now. A metadata upgrade can preserve existing text and embeddings; a full recrawl is not required.'
+            if any(v.get('legacy_scope_unsupported') for v in data['modes'].values()):status+=' A previous folder comparison lacked filesystem metadata. A metadata-only upgrade can repair this without a full recrawl; unavailable paths may still prevent a complete folder comparison.'
             self.comparison_status.setText(status);self.update_errors()
             self.metrics.setPlainText('\n'.join(lines) or 'No completed comparisons yet. Search normally; this view updates automatically.')
         def measure_footprint(self):

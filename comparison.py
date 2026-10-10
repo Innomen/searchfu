@@ -151,7 +151,14 @@ def scope_supported(db,options):
     scopes=collections_config.load()['collections']
     if not any(scopes.get(name,{}).get('one_filesystem') for name in names):return True
     with closing(sqlite3.connect(Path(db).resolve().as_uri()+'?mode=ro',uri=True)) as c:
-        return any(row[1]=='source_device' for row in c.execute('PRAGMA main.table_info(files)'))
+        if not any(row[1]=='source_device' for row in c.execute('PRAGMA main.table_info(files)')):return False
+        if c.execute("SELECT 1 FROM sqlite_master WHERE name='index_state' AND type='table'").fetchone() and c.execute("SELECT 1 FROM index_state WHERE key='metadata_device_upgrade'").fetchone():
+            for name in names:
+                entry=scopes.get(name,{})
+                if not entry.get('one_filesystem'):continue
+                root=entry['root'].rstrip('/') or '/';prefix=root.rstrip('/')+'/'
+                if c.execute('SELECT 1 FROM files WHERE source_device IS NULL AND (path=? OR substr(path,1,?)=?) LIMIT 1',(root,len(prefix),prefix)).fetchone():return False
+        return True
 
 def launch(db,query,options):
     m=mode(options)

@@ -71,3 +71,9 @@ submitting one, and must consume only the sanitized reply/status. Never inspect
 live result widgets. Synthetic socket/config/metrics overrides keep control
 gates isolated from real windows and usage. Active comparison status probes only
 the supervisor lock, not process arguments or private job/session stores.
+
+An explicitly owner-authorized `metadata-upgrade --comparison-target` operates
+locally on the configured USB catalog. It stats known paths without reading
+source content or traversing directories, and exports only counts, durations,
+fixed errors and booleans. Private paths and ANN identities never appear in its
+reports. This separate write operation does not change read-only shadow search.

@@ -35,6 +35,9 @@ export CUDA_VISIBLE_DEVICES="${SEARCHFU_CUDA:+0}"
 cmd="${1:-status}"
 if [ $# -gt 0 ]; then shift; fi
 case "$cmd" in
+  metadata-upgrade)
+    exec "$PY" "$SCRIPT_DIR/metadata_upgrade.py" "$@"
+    ;;
   gui-control)
     exec "$PY" "$SCRIPT_DIR/gui_control.py" "$@"
     ;;

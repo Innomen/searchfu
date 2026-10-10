@@ -439,3 +439,11 @@ Index creation/backfills can incur database I/O, but do not require source
 re-extraction. This compatibility work does not establish a remedy for the
 separate unscoped USB search timeout. Never prescribe a full recrawl merely
 because a legacy index lacks newer optional metadata.
+
+`searchfu metadata-upgrade --comparison-target` is the explicit metadata-only
+operation. It preserves an existing ANN identity, initializes chunk high-water
+tracking, adds optional columns, and commits known-path device checks in bounded
+batches. Unknown paths remain NULL; hashes remain unknown. Comparison admission
+rejects migrated pinned scopes with unknown rows within the selected roots.
+Rerunning skips resolved rows. Writer/cache/comparison locks prevent overlap.
+No text extraction, embedding, FTS rebuild or matrix generation occurs.

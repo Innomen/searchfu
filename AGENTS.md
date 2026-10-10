@@ -50,6 +50,11 @@ a separate explicit, read-only shadow; it must never replace primary results.
 Generic developer interfaces retain explicit paths for synthetic tests and
 deliberate migrations. Test deployed launcher and adapter parity after edits.
 
+Explicitly owner-authorized metadata repair may use
+`metadata-upgrade --comparison-target`; consume only its closed aggregate
+reports. It operates locally on known catalog paths and never exports their
+names, contents or cache identities. It is not an automatic search migration.
+
 Default refresh policy (owner, 2026-10-07): bounded known-file repair overlaps
 retrieval. Use the shared Archon lease, batches <=8 and 256 MiB allocator cap;
 never unload the LLM or fall back to exclusive admission. --no-refresh opts out.
