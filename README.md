@@ -273,3 +273,54 @@ on 2026-10-07. Installed consumers ignore inherited index-location overrides; on
 developer interfaces can select other locations.
 
 Source rollback instructions and database limits: [docs/rollback.md](docs/rollback.md).
+
+### Desktop GUI and real-use comparisons
+
+Launch **Searchfu** from the application menu, or run `searchfu gui`.
+The desktop client has Search, Browse index, Comparison, and Settings tabs.
+Search offers hybrid, keyword, filename and deep modes, named-folder filters,
+progressive previews, cancellation and opening local files. Browse reads the
+stored filename catalog with a literal text filter and 100-row pages; it never
+walks source folders. Settings edits folder views over already indexed content;
+creating a view does not initiate indexing.
+
+Comparison is enabled by default. Select your existing USB SQLite database in
+Settings (and its matrix/candidate folders if they are not sibling `ann/` and
+`candidates/` directories). Alternatively, configure it locally with
+`searchfu metrics --set-usb-db /absolute/path/to/drive.sqlite3`.
+No index is discovered, copied, rebuilt, refreshed or substituted automatically.
+Until a target is selected, searches succeed normally and count a missing-target
+skip. An absent USB target never creates an empty database. NVMe remains primary.
+
+The CLI, stream, background jobs, desktop client and EMS adapter all use the same
+retrieval wrapper. An identical request runs concurrently against the USB index,
+with refresh disabled there. One shadow is allowed at a time across processes;
+additional requests are counted as busy skips, not queued. The primary never
+waits for USB. A detached supervisor owns the read-only child through completion,
+cancellation or a hard timeout (default 120 seconds, configurable 1–300).
+In-process custom rerankers cannot be cloned and are counted as unsupported.
+Use `--no-comparison` for an individual search, or disable it in Settings.
+
+The Comparison tab shows aggregate latency, time to first indexed response,
+query encoding/model startup time, index stage time, result counts, result-set
+Jaccard overlap, top-result agreement and which target finished sooner. It can
+measure logical and allocated database/journal/matrix/candidate footprint and
+export or reset metrics. Allocated bytes are filesystem block accounting, not
+guaranteed reclaimable space when extents are shared.
+`searchfu metrics --agent` is the same payload-free diagnostic surface;
+`--footprint` adds artifact sizes, and `--reset` clears counters.
+Latency histograms are included in the export. These are concurrent real-use
+measurements: cache warmth, model startup, IO contention and differing coverage
+can affect the comparison. Index-stage timing excludes query encoding but
+includes ranking; after a primary refresh it describes the final snapshot pass.
+Total primary latency includes freshness repair. Agreement is not accuracy,
+and a low overlap may mean the copies index different material.
+
+Only fixed numeric counters, sums and histograms are retained, separated by
+four search modes. There are no per-search rows, timestamps, query hashes,
+filenames, snippets, result IDs or scope names. Requests and transient result
+identities travel through anonymous local pipes and memory, never log files or
+telemetry. Settings live in `XDG_CONFIG_HOME/searchfu/comparison.json` and metrics
+in `XDG_STATE_HOME/searchfu/metrics.sqlite3`, both outside source and mode 0600.
+The GUI uses local Qt widgets, no web server or third-party assets. It stores no
+query history. Indexing remains an explicit CLI operation.

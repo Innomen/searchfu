@@ -46,3 +46,9 @@ benchmark-scratch/
 /candidates/
 graph-*.bin
 candidates.meta.json
+
+# Private GUI/comparison settings and exported diagnostics
+comparison.json
+collections.json
+searchfu-metrics*.json
+comparison.lock

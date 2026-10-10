@@ -321,3 +321,34 @@ bounded separately. Explicit file reads verify the initial size/mtime signature
 after reading; a changed file cannot publish that read as a complete new version.
 Identical, fully indexed text can reuse stored embeddings when extracted passages
 and extractor identity match. No source deletion occurs on an incomplete walk.
+
+## Desktop client and comparison boundary
+
+`gui.py` is a native Qt client; `searchfu gui` and `searchfu.desktop` share the
+installed pinned primary launcher. Queries are passed to a cancellable search
+subprocess over stdin. Browse operates on read-only SQLite keyset pages in a
+worker thread. Folder-view configuration uses the existing collection contract.
+
+`retrieval.retrieve` wraps the existing primary retrieval/freshness generator.
+`comparison.py` supervises one read-only USB shadow per user, bounded by a
+configurable hard timeout. The target is explicit local configuration, never a
+primary fallback or an index-discovery heuristic. Default enablement takes effect
+once a target is configured. A missing target is a counted skip, not a search
+failure. A primary terminal event is delivered without waiting for comparison;
+the supervisor completes aggregate accounting independently. Closing/cancelling
+a primary aborts the shadow; pipe EOF also aborts it.
+
+Comparison persistence is one `counters(mode, metric, value)` table. Keys and
+export values are checked against a closed vocabulary; no query, path, identity,
+scope, exact timestamp or per-search record may be added. Query encoding is timed
+separately to expose cold shadow model startup. Index timings include ranking
+and describe the final snapshot, while end-to-end latency includes refresh.
+Synthetic tests cover real subprocess pairing, read-only preservation, closed
+export, timeout/child exit, cancellation, missing targets, opt-out, cross-process
+admission, no traversal, CLI arguments and an offscreen actual GUI search/browse.
+
+Generic synthetic/migration databases cannot enter live comparison merely by
+setting SEARCHFU_DB. Eligibility requires the installed primary, or explicit
+comparison-config AND metrics-path overrides together for isolated tests.
+This gate prevents old CLI fixtures from reading user settings or contaminating
+real-use counters. Test the negative boundary, not only positive shadow pairing.

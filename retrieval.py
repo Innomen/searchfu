@@ -318,10 +318,12 @@ def _retrieve_snapshot(db, query, *, top_k=12, kind="all", after=None, before=No
     pool=max(150,top_k*15)
     last_results=[];stage="keyword";last_progress={}
     previous={}
+    encoding_seconds=0.0
     def event(stage,results=None,**fields):
         nonlocal previous
         out={"stage":stage,"elapsed_seconds":round(time.monotonic()-started,4),
-             "source_tree_walked":False,"scopes":list(selected),**fields}
+             "source_tree_walked":False,"scopes":list(selected),
+             "timings":{"encoding_seconds":encoding_seconds,"index_seconds":max(0,time.monotonic()-started-encoding_seconds)},**fields}
         if results is not None:
             current={r['result_id']:r for r in results}
             if deltas:
@@ -354,8 +356,10 @@ def _retrieve_snapshot(db, query, *, top_k=12, kind="all", after=None, before=No
                 return
             stage="encoding"
             yield event(stage,complete=False)
+            encoding_started=time.monotonic()
             import numpy as np
             queries=np.asarray((models or Models(False)).text_vecs(semantic_texts),dtype=np.float32)
+            encoding_seconds=time.monotonic()-encoding_started
             if queries.shape!=(len(semantic_texts),384) or not np.isfinite(queries).all(): raise ValueError("invalid_query_vectors")
             queries=queries/np.maximum(np.linalg.norm(queries,axis=1,keepdims=True),1e-12)
             check()
@@ -462,7 +466,7 @@ def vector_candidates(db,qv,k,where,params):
         return out
 
 
-def retrieve(db, query, *, refresh=True, **options):
+def _retrieve_with_refresh(db, query, *, refresh=True, **options):
     """Bounded repair overlaps retrieval. All snippets still come from SQLite.
 
     No directories are traversed. GPU admission/encoding cleanup is cooperative,
@@ -526,3 +530,33 @@ def retrieve(db, query, *, refresh=True, **options):
         # Closing a progressive generator owns cancellation through child exit.
         closing_worker.set()
         pool.shutdown(wait=True,cancel_futures=True)
+
+
+def retrieve(db, query, *, refresh=True, comparison=True, **options):
+    """Primary results retain their contract; optional shadow owns separate caches."""
+    import comparison as tracking
+    worker=None;first=None;terminal=None;outcome='cancelled'
+    # Synthetic/migration callers remain isolated. Installed CLI and EMS both pin
+    # SEARCHFU_DB to the primary; callers can explicitly disable comparisons.
+    from runtime_paths import pinned_paths
+    primary=pinned_paths()['SEARCHFU_DB']
+    synthetic_config=bool(os.environ.get('SEARCHFU_COMPARISON_CONFIG') and os.environ.get('SEARCHFU_METRICS_DB'))
+    explicit_primary=os.environ.get('SEARCHFU_DB',primary)
+    eligible=(comparison and not os.environ.get('SEARCHFU_SHADOW') and
+              (Path(db).resolve()==Path(primary).resolve() or
+               (synthetic_config and Path(db).resolve()==Path(explicit_primary).resolve())))
+    if eligible:
+        try:worker=tracking.launch(db,query,{**options,'refresh':refresh})
+        except Exception:pass
+    try:
+        for e in _retrieve_with_refresh(db,query,refresh=refresh,**options):
+            if first is None and ('results' in e or 'changes' in e):first=e['elapsed_seconds']
+            if e['stage'] in ('done','cancelled'):
+                terminal=e;outcome='paired' if e['stage']=='done' else 'cancelled'
+                # Send before yielding: CLI/GUI may stop iteration at terminal.
+                tracking.finish(worker,outcome,tracking.summary(e,first,refresh));worker=None
+            yield e
+    except Exception:
+        outcome='primary_failed';raise
+    finally:
+        tracking.finish(worker,outcome,tracking.summary(terminal,first,refresh) if terminal else None)

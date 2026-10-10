@@ -41,3 +41,15 @@ Collection configuration contains private roots and mount-device identities and
 lives outside source. Filename-only catalogs are still private data. Content
 hashes and stable result IDs are not anonymization. Imported RAG metadata and
 passages remain local; aggregate migration checks must never dump them.
+
+The desktop GUI displays private local search results and collection settings;
+remote agents must not inspect its live windows, screenshots or widget contents.
+Use the offscreen synthetic GUI gate instead. Comparison requests and temporary
+result identities use anonymous pipes; supervisors/children suppress stdout and
+stderr except the private pipe response. Metrics persist only a closed numeric
+aggregate vocabulary, never per-search records or stable identifiers. Runtime
+settings and metric paths are rejected if they resolve inside application source.
+`metrics --agent` (and optional `--footprint`) is an authorized aggregate-only
+health surface, including when run against installed artifacts. It must not be
+extended with paths, query text, scope names or IDs. Scope/path/content inspection
+remains private even though timing and footprint are safe to expose.

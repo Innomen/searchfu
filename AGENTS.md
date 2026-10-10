@@ -8,7 +8,8 @@ legacy index/, custom SEARCHFU_DB/SEARCHFU_ANN_DIR/SEARCHFU_JOBS_DIR locations,
 ~/.local/share/searchfu and ~/.local/state/searchfu. Do not enumerate these
 paths. Ignore files do not grant permission or provide a security sandbox.
 
-Use only `status --agent` for real-index diagnostics. Run tests and benchmarks
+Use only `status --agent` and the closed `metrics --agent` surface (including
+`--footprint`) for real-index diagnostics. Run tests and benchmarks
 only with their generated fixtures. Inspect code to diagnose runtime errors;
 request narrowly sanitized local checks when private access is needed.
 A local worker may have broader explicitly authorized access, but its response
@@ -41,7 +42,8 @@ with another default search tool. Keep all examples and validation synthetic.
 
 Installed index location policy (owner, 2026-10-07): runtime_paths.py is the
 authoritative installed path family. The installed launcher and EMS adapter
-ignore inherited DB/ANN/candidate/data overrides. No backup discovery/fallback.
+ignore inherited DB/ANN/candidate/data overrides. No backup discovery/fallback. The owner-authorized USB comparison target is
+a separate explicit, read-only shadow; it must never replace primary results.
 Generic developer interfaces retain explicit paths for synthetic tests and
 deliberate migrations. Test deployed launcher and adapter parity after edits.
 

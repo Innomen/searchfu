@@ -15,6 +15,7 @@ TERMINAL = {"done", "cancelled", "failed"}
 
 
 def add_stage_options(p):
+    p.add_argument("--no-comparison",action="store_false",dest="comparison",default=True,help="skip the optional USB shadow search")
     p.add_argument("--refresh",action="store_true",default=True,help="refresh known text files during search (default)")
     p.add_argument("--no-refresh",action="store_false",dest="refresh",help="read indexes without source checks or writes")
     p.add_argument("--scope",action="append",default=[],dest="scopes",help="named indexed collection; repeat to search the union")
@@ -94,10 +95,10 @@ def _alive(state):
 
 
 def _options(args):
-    names=("refresh","top_k","kind","after","before","path","fts_only","require_all",
+    names=("comparison","refresh","top_k","kind","after","before","path","fts_only","require_all",
            "expansions","deep","max_seconds","batch_rows","emit_seconds",
            "scopes","collections_file","names_only","lexical_queries","semantic_queries","early","candidate_ef","rerank_model","rerank_limit","rerank_mix","rerank_early","deltas")
-    defaults={'refresh':True,'scopes':[],'collections_file':None,'names_only':False,'lexical_queries':None,'semantic_queries':None,'early':False,'candidate_ef':500,'rerank_model':None,'rerank_limit':36,'rerank_mix':1.0,'rerank_early':False,'deltas':False}
+    defaults={'comparison':True,'refresh':True,'scopes':[],'collections_file':None,'names_only':False,'lexical_queries':None,'semantic_queries':None,'early':False,'candidate_ef':500,'rerank_model':None,'rerank_limit':36,'rerank_mix':1.0,'rerank_early':False,'deltas':False}
     return {name:getattr(args,name,defaults.get(name)) for name in names}
 
 

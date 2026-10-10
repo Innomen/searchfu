@@ -15,6 +15,8 @@ from runtime_paths import launcher_text
 launcher=bin_dir/'searchfu'
 launcher.write_text(launcher_text(app,env))
 launcher.chmod(0o755)
+from desktop import install_desktop
+install_desktop(launcher)
 PY
 "$ENV_DIR/bin/python" "$APP/search.py" stream --help >/dev/null
 printf 'Searchfu installed; runtime indexes remain outside application source.\n'

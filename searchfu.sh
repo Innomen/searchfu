@@ -35,6 +35,12 @@ export CUDA_VISIBLE_DEVICES="${SEARCHFU_CUDA:+0}"
 cmd="${1:-status}"
 if [ $# -gt 0 ]; then shift; fi
 case "$cmd" in
+  gui)
+    exec "$PY" "$SCRIPT_DIR/gui.py" "$@"
+    ;;
+  metrics)
+    exec "$PY" "$SCRIPT_DIR/comparison.py" "$@"
+    ;;
   scope)
     exec "$PY" "$SCRIPT_DIR/catalog.py" --db "$DB" "$@"
     ;;
