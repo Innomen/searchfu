@@ -25,7 +25,6 @@ def compare(primary, secondary):
                 'chunks': c.execute(f'SELECT count(*) FROM {schema}.chunks').fetchone()[0],
                 'database_bytes': path.stat().st_size,
                 'unused_database_bytes': c.execute(f'PRAGMA {schema}.freelist_count').fetchone()[0] * c.execute(f'PRAGMA {schema}.page_size').fetchone()[0],
-                'roots': c.execute(f'SELECT count(DISTINCT root) FROM {schema}.files').fetchone()[0],
             }
         shared = c.execute('SELECT count(*) FROM secondary.files s JOIN main.files p ON p.path=s.path').fetchone()[0]
         out.update(shared_paths=shared, primary_only_paths=out['primary']['files']-shared,

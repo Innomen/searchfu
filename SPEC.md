@@ -472,7 +472,7 @@ Closed numeric experiment counters checkpoint monotonic elapsed time, first-resu
 The owner intends one logical computer-wide index with an authoritative NVMe
 copy and a USB replica. Existing unmatched inventories are not a controlled
 storage benchmark. `inventory-compare --comparison-target` locally joins stored
-paths and returns only shared/unique counts, files/chunks, root counts and
+paths and returns only shared/unique counts, files/chunks and
 database/free-page bytes; it does not claim shared paths have equal contents.
 
 Explicit `replicate --comparison-target --wait` holds the comparison lock after
